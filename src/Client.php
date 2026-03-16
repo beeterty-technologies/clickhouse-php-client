@@ -5,6 +5,7 @@ namespace Beeterty\ClickHouse;
 use Beeterty\ClickHouse\Exception\{ConnectionException, QueryException};
 use Beeterty\ClickHouse\Format\Contracts\Format;
 use Beeterty\ClickHouse\Format\JsonEachRow;
+use Beeterty\ClickHouse\Schema\Schema;
 use CurlHandle;
 
 class Client
@@ -25,6 +26,16 @@ class Client
         private readonly Config $config
     ) {
         $this->curl = curl_init();
+    }
+
+    /**
+     * Return a Schema instance for DDL operations on this connection.
+     *
+     * @return Schema
+     */
+    public function schema(): Schema
+    {
+        return new Schema($this);
     }
 
     /**
@@ -55,8 +66,8 @@ class Client
      */
     public function query(string $sql, array $bindings = [], ?Format $format = null): Statement
     {
-        $format = $format ?? new JsonEachRow();
-        $sql    = $this->bindParams($sql, $bindings) . ' FORMAT ' . $format->name();
+        $format ??= new JsonEachRow();
+        $sql = $this->bindParams($sql, $bindings) . ' FORMAT ' . $format->name();
         $result = $this->send($sql);
 
         return new Statement($result['body'], $format, $result['headers']);

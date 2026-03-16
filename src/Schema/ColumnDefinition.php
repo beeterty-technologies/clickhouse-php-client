@@ -1,0 +1,149 @@
+<?php
+
+namespace Beeterty\ClickHouse\Schema;
+
+/**
+ * Represents a single column definition in a ClickHouse table.
+ *
+ * Modifiers are applied in ClickHouse's required order:
+ *   Nullable → LowCardinality → DEFAULT → COMMENT → CODEC → TTL
+ */
+class ColumnDefinition
+{
+    private bool $isNullable        = false;
+    private bool $isLowCardinality  = false;
+    private bool $hasDefault        = false;
+    private mixed $defaultValue     = null;
+    private ?string $comment        = null;
+    private ?string $codec          = null;
+    private ?string $ttl            = null;
+
+    public function __construct(
+        private readonly string $name,
+        private readonly string $type,
+    ) {}
+
+    // ─── Modifiers ────────────────────────────────────────────────────────────
+
+    /**
+     * Wrap the column type in Nullable(T).
+     */
+    public function nullable(): static
+    {
+        $this->isNullable = true;
+
+        return $this;
+    }
+
+    /**
+     * Wrap the column type in LowCardinality(T).
+     * Ideal for string columns with low distinct-value counts.
+     */
+    public function lowCardinality(): static
+    {
+        $this->isLowCardinality = true;
+
+        return $this;
+    }
+
+    /**
+     * Set a DEFAULT expression for the column.
+     *
+     * @param mixed $value Scalar default value or raw SQL expression string.
+     */
+    public function default(mixed $value): static
+    {
+        $this->hasDefault   = true;
+        $this->defaultValue = $value;
+
+        return $this;
+    }
+
+    /**
+     * Attach a COMMENT to the column.
+     */
+    public function comment(string $text): static
+    {
+        $this->comment = $text;
+
+        return $this;
+    }
+
+    /**
+     * Apply a column-level CODEC (e.g. "ZSTD(1)", "Delta, LZ4").
+     */
+    public function codec(string $codec): static
+    {
+        $this->codec = $codec;
+
+        return $this;
+    }
+
+    /**
+     * Set a column-level TTL expression.
+     */
+    public function ttl(string $expr): static
+    {
+        $this->ttl = $expr;
+
+        return $this;
+    }
+
+    // ─── Getters ──────────────────────────────────────────────────────────────
+
+    public function getName(): string
+    {
+        return $this->name;
+    }
+
+    // ─── SQL compilation ──────────────────────────────────────────────────────
+
+    /**
+     * Compile the column to its ClickHouse DDL fragment.
+     */
+    public function toSql(): string
+    {
+        $type = $this->type;
+
+        if ($this->isNullable) {
+            $type = "Nullable({$type})";
+        }
+
+        if ($this->isLowCardinality) {
+            $type = "LowCardinality({$type})";
+        }
+
+        $sql = "`{$this->name}` {$type}";
+
+        if ($this->hasDefault) {
+            $sql .= ' DEFAULT ' . $this->formatDefault($this->defaultValue);
+        }
+
+        if ($this->comment !== null) {
+            $sql .= " COMMENT '" . str_replace("'", "\\'", $this->comment) . "'";
+        }
+
+        if ($this->codec !== null) {
+            $sql .= " CODEC({$this->codec})";
+        }
+
+        if ($this->ttl !== null) {
+            $sql .= " TTL {$this->ttl}";
+        }
+
+        return $sql;
+    }
+
+    // ─── Internal helpers ─────────────────────────────────────────────────────
+
+    private function formatDefault(mixed $value): string
+    {
+        return match (true) {
+            $value === null   => 'NULL',
+            is_bool($value)   => $value ? '1' : '0',
+            is_int($value)    => (string) $value,
+            is_float($value)  => (string) $value,
+            default           => "'" . str_replace("'", "\\'", (string) $value) . "'",
+        };
+    }
+}
