@@ -35,9 +35,9 @@ class Client
     public function ping(): bool
     {
         try {
-            $response = $this->send('SELECT 1');
+            $result = $this->send('SELECT 1');
 
-            return trim($response) === '1';
+            return trim($result['body']) === '1';
         } catch (\Throwable) {
             return false;
         }
@@ -46,9 +46,9 @@ class Client
     /**
      * Execute a SELECT query and return a Statement wrapping the result rows.
      *
-     * @param string  $sql
-     * @param array   $bindings  Named placeholders: [':name' => 'Alice', ':age' => 30]
-     * @param Format|null $format  Defaults to JsonEachRow
+     * @param string      $sql
+     * @param array       $bindings Named placeholders: [':name' => 'Alice', ':age' => 30]
+     * @param Format|null $format   Defaults to JsonEachRow
      * @return Statement
      * @throws ConnectionException
      * @throws QueryException
@@ -57,16 +57,17 @@ class Client
     {
         $format = $format ?? new JsonEachRow();
         $sql    = $this->bindParams($sql, $bindings) . ' FORMAT ' . $format->name();
+        $result = $this->send($sql);
 
-        return new Statement($this->send($sql), $format);
+        return new Statement($result['body'], $format, $result['headers']);
     }
 
     /**
      * Insert rows into a table.
      *
-     * @param string  $table
-     * @param array   $rows   Array of associative arrays
-     * @param Format|null $format  Defaults to JsonEachRow
+     * @param string      $table
+     * @param array       $rows   Array of associative arrays
+     * @param Format|null $format Defaults to JsonEachRow
      * @return bool
      * @throws ConnectionException
      * @throws QueryException
@@ -74,7 +75,7 @@ class Client
     public function insert(string $table, array $rows, ?Format $format = null): bool
     {
         $format = $format ?? new JsonEachRow();
-        $sql = "INSERT INTO {$table} FORMAT " . $format->name();
+        $sql    = "INSERT INTO {$table} FORMAT " . $format->name();
 
         $this->send($sql, $format->encode($rows));
 
@@ -112,7 +113,7 @@ class Client
 
         foreach ($bindings as $key => $value) {
             $placeholder = ':' . ltrim((string) $key, ':');
-            $sql = str_replace($placeholder, $this->escape($value), $sql);
+            $sql         = str_replace($placeholder, $this->escape($value), $sql);
         }
 
         return $sql;
@@ -127,44 +128,56 @@ class Client
     private function escape(mixed $value): string
     {
         return match (true) {
-            $value === null => 'NULL',
+            $value === null  => 'NULL',
             \is_bool($value) => $value ? '1' : '0',
-            \is_int($value) => (string) $value,
+            \is_int($value)  => (string) $value,
             \is_float($value) => (string) $value,
             \is_array($value) => '[' . implode(', ', array_map($this->escape(...), $value)) . ']',
-            default => "'" . str_replace(["\\", "'"], ["\\\\", "\\'"], (string) $value) . "'",
+            default          => "'" . str_replace(["\\", "'"], ["\\\\", "\\'"], (string) $value) . "'",
         };
     }
 
     /**
      * Execute a raw HTTP request against the ClickHouse HTTP interface.
      *
-     * The SQL is always sent as the `query` URL parameter. When $body is
-     * non-empty (e.g. INSERT data) a POST request is made; otherwise GET.
+     * The SQL is always sent as the `query` URL parameter. `wait_end_of_query=1`
+     * ensures the server buffers the full response before sending headers, so
+     * HTTP 200 genuinely means the query succeeded. When $body is non-empty
+     * (e.g. INSERT data) a POST request is made; otherwise GET.
      *
      * @param string $sql
      * @param string $body
-     * @return string
+     * @return array{body: string, headers: array<string, string>}
      * @throws ConnectionException
      * @throws QueryException
      */
-    private function send(string $sql, string $body = ''): string
+    private function send(string $sql, string $body = ''): array
     {
         $url = $this->config->dataSource() . '/?' . http_build_query([
-            'database' => $this->config->database,
-            'query' => $sql,
+            'database'          => $this->config->database,
+            'query'             => $sql,
+            'wait_end_of_query' => 1,
         ]);
 
+        $responseHeaders = [];
+
         curl_setopt_array($this->curl, [
-            CURLOPT_URL => $url,
+            CURLOPT_URL            => $url,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => $this->config->timeout,
+            CURLOPT_TIMEOUT        => $this->config->timeout,
             CURLOPT_CONNECTTIMEOUT => $this->config->connectTimeout,
-            CURLOPT_HTTPHEADER => [
+            CURLOPT_HTTPHEADER     => [
                 'X-ClickHouse-User: ' . $this->config->username,
                 'X-ClickHouse-Key: '  . $this->config->password,
                 'Content-Type: text/plain',
             ],
+            CURLOPT_HEADERFUNCTION => function ($curl, $header) use (&$responseHeaders): int {
+                $parts = explode(':', $header, 2);
+                if (count($parts) === 2) {
+                    $responseHeaders[trim($parts[0])] = trim($parts[1]);
+                }
+                return strlen($header);
+            },
         ]);
 
         if (!empty($body)) {
@@ -176,7 +189,7 @@ class Client
 
         $response = curl_exec($this->curl);
         $httpCode = curl_getinfo($this->curl, CURLINFO_HTTP_CODE);
-        $error = curl_error($this->curl);
+        $error    = curl_error($this->curl);
 
         if ($response === false || !empty($error)) {
             throw new ConnectionException(
@@ -191,6 +204,6 @@ class Client
             );
         }
 
-        return $response;
+        return ['body' => $response, 'headers' => $responseHeaders];
     }
 }
