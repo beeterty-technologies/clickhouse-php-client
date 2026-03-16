@@ -44,10 +44,12 @@ class Blueprint
     /**
      * Add nullable `created_at` and `updated_at` DateTime columns.
      */
-    public function timestamps(?string $timezone = null): void
+    public function timestamps(?string $timezone = null): static
     {
         $this->dateTime('created_at', $timezone)->nullable();
         $this->dateTime('updated_at', $timezone)->nullable();
+
+        return $this;
     }
 
     /**
