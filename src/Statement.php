@@ -12,7 +12,7 @@ class Statement implements Countable, IteratorAggregate
 {
     /**
      * The decoded rows from the raw response.
-     * 
+     *
      * @var array|null
      */
     private ?array $decoded = null;
@@ -20,12 +20,14 @@ class Statement implements Countable, IteratorAggregate
     /**
      * Create a new Statement instance.
      *
-     * @param string $raw The raw response string from ClickHouse.
-     * @param Format $format The format used to decode the raw response.
+     * @param string               $raw     The raw response body from ClickHouse.
+     * @param Format               $format  The format used to decode the raw response.
+     * @param array<string,string> $headers The response headers from ClickHouse.
      */
     public function __construct(
         private readonly string $raw,
         private readonly Format $format,
+        private readonly array $headers = [],
     ) {
         //
     }
@@ -71,7 +73,7 @@ class Statement implements Countable, IteratorAggregate
     }
 
     /**
-     * Return the raw response string from ClickHouse.
+     * Return the raw response body from ClickHouse.
      *
      * @return string
      */
@@ -81,8 +83,33 @@ class Statement implements Countable, IteratorAggregate
     }
 
     /**
+     * Return the ClickHouse query ID assigned to this request.
+     *
+     * @return string|null
+     */
+    public function queryId(): ?string
+    {
+        return $this->headers['X-ClickHouse-Query-Id'] ?? null;
+    }
+
+    /**
+     * Return the execution summary reported by ClickHouse.
+     *
+     * Contains keys such as read_rows, read_bytes, written_rows, written_bytes,
+     * total_rows_to_read, result_rows, result_bytes, elapsed_ns.
+     *
+     * @return array
+     */
+    public function summary(): array
+    {
+        $raw = $this->headers['X-ClickHouse-Summary'] ?? '{}';
+
+        return json_decode($raw, true) ?? [];
+    }
+
+    /**
      * Get an iterator for the rows in the result.
-     * 
+     *
      * @return Traversable
      */
     public function getIterator(): Traversable
