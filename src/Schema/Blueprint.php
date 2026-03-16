@@ -31,6 +31,65 @@ class Blueprint
     private ?string $ttl         = null;
     private ?string $comment     = null;
 
+    // ─── Convenience shorthands ───────────────────────────────────────────────
+
+    /**
+     * Add a standard UInt64 primary key column.
+     */
+    public function id(string $name = 'id'): ColumnDefinition
+    {
+        return $this->uint64($name);
+    }
+
+    /**
+     * Add nullable `created_at` and `updated_at` DateTime columns.
+     */
+    public function timestamps(?string $timezone = null): void
+    {
+        $this->dateTime('created_at', $timezone)->nullable();
+        $this->dateTime('updated_at', $timezone)->nullable();
+    }
+
+    /**
+     * Add a nullable `deleted_at` DateTime column for soft deletes.
+     */
+    public function softDeletes(string $column = 'deleted_at', ?string $timezone = null): ColumnDefinition
+    {
+        return $this->dateTime($column, $timezone)->nullable();
+    }
+
+    /**
+     * Drop the standard timestamp columns (ALTER TABLE context).
+     */
+    public function dropTimestamps(): static
+    {
+        $this->drops[] = 'created_at';
+        $this->drops[] = 'updated_at';
+
+        return $this;
+    }
+
+    /**
+     * Drop the soft-delete column (ALTER TABLE context).
+     */
+    public function dropSoftDeletes(string $column = 'deleted_at'): static
+    {
+        $this->drops[] = $column;
+
+        return $this;
+    }
+
+    /**
+     * Add a column using a raw ClickHouse type definition string.
+     *
+     * Useful as an escape hatch for types not covered by dedicated methods,
+     * e.g. rawColumn('data', 'Tuple(UInt32, String)').
+     */
+    public function rawColumn(string $name, string $definition): ColumnDefinition
+    {
+        return $this->addColumn($name, $definition);
+    }
+
     // ─── Integer types ────────────────────────────────────────────────────────
 
     public function uint8(string $name): ColumnDefinition   { return $this->addColumn($name, 'UInt8');   }

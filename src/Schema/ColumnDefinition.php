@@ -17,6 +17,8 @@ class ColumnDefinition
     private ?string $comment        = null;
     private ?string $codec          = null;
     private ?string $ttl            = null;
+    private ?string $after          = null;
+    private bool $isChange          = false;
 
     public function __construct(
         private readonly string $name,
@@ -89,11 +91,45 @@ class ColumnDefinition
         return $this;
     }
 
+    /**
+     * Position this column after another column (ALTER TABLE context only).
+     *
+     * Generates: ADD COLUMN / MODIFY COLUMN ... AFTER `other`.
+     */
+    public function after(string $column): static
+    {
+        $this->after = $column;
+
+        return $this;
+    }
+
+    /**
+     * Mark this column as a modification rather than an addition.
+     *
+     * In an ALTER TABLE context this generates MODIFY COLUMN instead of ADD COLUMN.
+     */
+    public function change(): static
+    {
+        $this->isChange = true;
+
+        return $this;
+    }
+
     // ─── Getters ──────────────────────────────────────────────────────────────
 
     public function getName(): string
     {
         return $this->name;
+    }
+
+    public function getAfter(): ?string
+    {
+        return $this->after;
+    }
+
+    public function isChange(): bool
+    {
+        return $this->isChange;
     }
 
     // ─── SQL compilation ──────────────────────────────────────────────────────
