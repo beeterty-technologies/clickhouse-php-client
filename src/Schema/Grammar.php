@@ -52,7 +52,14 @@ class Grammar
         $actions = [];
 
         foreach ($blueprint->getColumns() as $column) {
-            $actions[] = 'ADD COLUMN ' . $column->toSql();
+            $verb   = $column->isChange() ? 'MODIFY COLUMN' : 'ADD COLUMN';
+            $colSql = $column->toSql();
+
+            if ($after = $column->getAfter()) {
+                $colSql .= " AFTER `{$after}`";
+            }
+
+            $actions[] = "{$verb} {$colSql}";
         }
 
         foreach ($blueprint->getDrops() as $column) {
