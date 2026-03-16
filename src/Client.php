@@ -161,8 +161,9 @@ class Client
      *
      * The SQL is always sent as the `query` URL parameter. `wait_end_of_query=1`
      * ensures the server buffers the full response before sending headers, so
-     * HTTP 200 genuinely means the query succeeded. When $body is non-empty
-     * (e.g. INSERT data) a POST request is made; otherwise GET.
+     * HTTP 200 genuinely means the query succeeded. Every request uses POST —
+     * ClickHouse treats GET as readonly (Code 164) and rejects DDL/DML over it.
+     * For INSERT statements $body carries the row data; it is empty otherwise.
      *
      * @param string $sql
      * @param string $body
@@ -200,12 +201,11 @@ class Client
             },
         ]);
 
-        if (!empty($body)) {
-            curl_setopt($this->curl, CURLOPT_POST, true);
-            curl_setopt($this->curl, CURLOPT_POSTFIELDS, $body);
-        } else {
-            curl_setopt($this->curl, CURLOPT_HTTPGET, true);
-        }
+        // Always POST — ClickHouse treats GET as readonly (Code 164).
+        // The SQL travels in the ?query= URL parameter; $body carries
+        // INSERT row data (empty string for all other query types).
+        curl_setopt($this->curl, CURLOPT_POST, true);
+        curl_setopt($this->curl, CURLOPT_POSTFIELDS, $body);
 
         $response = curl_exec($this->curl);
         $httpCode = curl_getinfo($this->curl, CURLINFO_HTTP_CODE);
