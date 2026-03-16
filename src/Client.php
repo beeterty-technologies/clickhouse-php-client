@@ -113,7 +113,7 @@ class Client
 
         foreach ($bindings as $key => $value) {
             $placeholder = ':' . ltrim((string) $key, ':');
-            $sql         = str_replace($placeholder, $this->escape($value), $sql);
+            $sql = str_replace($placeholder, $this->escape($value), $sql);
         }
 
         return $sql;
@@ -133,7 +133,7 @@ class Client
             \is_int($value)  => (string) $value,
             \is_float($value) => (string) $value,
             \is_array($value) => '[' . implode(', ', array_map($this->escape(...), $value)) . ']',
-            default          => "'" . str_replace(["\\", "'"], ["\\\\", "\\'"], (string) $value) . "'",
+            default => "'" . str_replace(["\\", "'"], ["\\\\", "\\'"], (string) $value) . "'",
         };
     }
 
@@ -154,29 +154,30 @@ class Client
     private function send(string $sql, string $body = ''): array
     {
         $url = $this->config->dataSource() . '/?' . http_build_query([
-            'database'          => $this->config->database,
-            'query'             => $sql,
+            'database' => $this->config->database,
+            'query' => $sql,
             'wait_end_of_query' => 1,
         ]);
 
         $responseHeaders = [];
 
         curl_setopt_array($this->curl, [
-            CURLOPT_URL            => $url,
+            CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => $this->config->timeout,
+            CURLOPT_TIMEOUT => $this->config->timeout,
             CURLOPT_CONNECTTIMEOUT => $this->config->connectTimeout,
-            CURLOPT_HTTPHEADER     => [
+            CURLOPT_HTTPHEADER => [
                 'X-ClickHouse-User: ' . $this->config->username,
                 'X-ClickHouse-Key: '  . $this->config->password,
                 'Content-Type: text/plain',
             ],
             CURLOPT_HEADERFUNCTION => function ($curl, $header) use (&$responseHeaders): int {
                 $parts = explode(':', $header, 2);
-                if (count($parts) === 2) {
+
+                if (\count($parts) === 2) {
                     $responseHeaders[trim($parts[0])] = trim($parts[1]);
                 }
-                return strlen($header);
+                return \strlen($header);
             },
         ]);
 
@@ -189,7 +190,7 @@ class Client
 
         $response = curl_exec($this->curl);
         $httpCode = curl_getinfo($this->curl, CURLINFO_HTTP_CODE);
-        $error    = curl_error($this->curl);
+        $error = curl_error($this->curl);
 
         if ($response === false || !empty($error)) {
             throw new ConnectionException(
