@@ -76,12 +76,16 @@ class ClientIntegrationTest extends IntegrationTestCase
             ['id' => 11, 'name' => "O'Brien", 'score' => 5],
         ]);
 
+        // Select the string column back to verify the apostrophe was escaped
+        // correctly by the binding.  Selecting the UInt64 `id` would yield a
+        // JSON string in older ClickHouse versions (24.x/25.x) due to 64-bit
+        // integer serialisation, making assertSame(int) unreliable across versions.
         $stmt = $this->client->query(
-            "SELECT id FROM {$this->table} WHERE name = :name",
+            "SELECT name FROM {$this->table} WHERE name = :name",
             ['name' => "O'Brien"],
         );
 
-        $this->assertSame(11, $stmt->value());
+        $this->assertSame("O'Brien", $stmt->value());
     }
 
     // ─── value() ──────────────────────────────────────────────────────────────
