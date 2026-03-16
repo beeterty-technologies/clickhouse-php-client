@@ -21,8 +21,8 @@ class Statement implements Countable, IteratorAggregate
     /**
      * Create a new Statement instance.
      *
-     * @param string               $raw     The raw response body from ClickHouse.
-     * @param Format               $format  The format used to decode the raw response.
+     * @param string $raw     The raw response body from ClickHouse.
+     * @param Format $format  The format used to decode the raw response.
      * @param array<string,string> $headers The response headers from ClickHouse.
      */
     public function __construct(
