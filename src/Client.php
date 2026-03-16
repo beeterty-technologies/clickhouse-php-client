@@ -29,6 +29,14 @@ class Client
     }
 
     /**
+     * Close the cURL handle when the client is destroyed.
+     */
+    public function __destruct()
+    {
+        curl_close($this->curl);
+    }
+
+    /**
      * Return a Schema instance for DDL operations on this connection.
      *
      * @return Schema
