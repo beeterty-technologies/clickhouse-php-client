@@ -58,11 +58,13 @@ jobs:
     services:
       clickhouse:
         image: clickhouse/clickhouse-server:${{ matrix.clickhouse }}
+        env:
+          CLICKHOUSE_PASSWORD: clickhouse
         ports:
           - 8123:8123
         options: >-
           --ulimit nofile=262144:262144
-          --health-cmd "clickhouse-client --query 'SELECT 1'"
+          --health-cmd "clickhouse-client --user default --password clickhouse --query 'SELECT 1'"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -108,5 +110,5 @@ jobs:
           CLICKHOUSE_PORT:     8123
           CLICKHOUSE_DB:       default
           CLICKHOUSE_USERNAME: default
-          CLICKHOUSE_PASSWORD: ''
+          CLICKHOUSE_PASSWORD: clickhouse
         run: vendor/bin/phpunit -c phpunit.xml.dist --testsuite Integration --colors=never
