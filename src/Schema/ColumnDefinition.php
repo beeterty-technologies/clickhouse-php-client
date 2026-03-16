@@ -14,6 +14,7 @@ class ColumnDefinition
     private bool $isLowCardinality  = false;
     private bool $hasDefault        = false;
     private mixed $defaultValue     = null;
+    private bool $defaultIsRaw      = false;
     private ?string $comment        = null;
     private ?string $codec          = null;
     private ?string $ttl            = null;
@@ -51,12 +52,30 @@ class ColumnDefinition
     /**
      * Set a DEFAULT expression for the column.
      *
-     * @param mixed $value Scalar default value or raw SQL expression string.
+     * @param mixed $value Scalar default value (int, float, bool, string literal).
+     *                     For SQL expressions/functions use defaultRaw().
      */
     public function default(mixed $value): static
     {
         $this->hasDefault   = true;
         $this->defaultValue = $value;
+        $this->defaultIsRaw = false;
+
+        return $this;
+    }
+
+    /**
+     * Set a raw SQL DEFAULT expression — emitted verbatim without quoting.
+     *
+     * Use for ClickHouse functions such as now(), generateUUIDv4(), toDate(now()), etc.
+     *
+     * @param string $expr Raw SQL expression, e.g. 'now()' or 'generateUUIDv4()'.
+     */
+    public function defaultRaw(string $expr): static
+    {
+        $this->hasDefault   = true;
+        $this->defaultValue = $expr;
+        $this->defaultIsRaw = true;
 
         return $this;
     }
@@ -152,7 +171,9 @@ class ColumnDefinition
         $sql = "`{$this->name}` {$type}";
 
         if ($this->hasDefault) {
-            $sql .= ' DEFAULT ' . $this->formatDefault($this->defaultValue);
+            $sql .= ' DEFAULT ' . ($this->defaultIsRaw
+                ? $this->defaultValue
+                : $this->formatDefault($this->defaultValue));
         }
 
         if ($this->comment !== null) {
