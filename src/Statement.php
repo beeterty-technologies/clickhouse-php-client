@@ -8,6 +8,7 @@ use IteratorAggregate;
 use ArrayIterator;
 use Traversable;
 
+/** @implements IteratorAggregate<int, array<string, mixed>> */
 class Statement implements Countable, IteratorAggregate
 {
     /**

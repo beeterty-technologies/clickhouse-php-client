@@ -41,7 +41,7 @@ jobs:
         run: vendor/bin/phpstan analyse --no-progress
 
       - name: Run unit tests
-        run: vendor/bin/phpunit --testsuite Unit --colors=never
+        run: vendor/bin/phpunit -c phpunit.xml --testsuite Unit --colors=never
 
   # ── Integration tests ───────────────────────────────────────────────────────
   # Spins up the official ClickHouse Docker image and runs the full client
@@ -109,4 +109,4 @@ jobs:
           CLICKHOUSE_DB:       default
           CLICKHOUSE_USERNAME: default
           CLICKHOUSE_PASSWORD: ''
-        run: vendor/bin/phpunit --testsuite Integration --colors=never
+        run: vendor/bin/phpunit -c phpunit.xml --testsuite Integration --colors=never

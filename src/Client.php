@@ -209,13 +209,15 @@ class Client
 
         $response = curl_exec($this->curl);
         $httpCode = curl_getinfo($this->curl, CURLINFO_HTTP_CODE);
-        $error = curl_error($this->curl);
+        $error    = curl_error($this->curl);
 
         if ($response === false || !empty($error)) {
             throw new ConnectionException(
                 "ClickHouse connection failed: {$error}"
             );
         }
+
+        \assert(\is_string($response));
 
         if ($httpCode !== 200) {
             throw new QueryException(
