@@ -53,6 +53,39 @@ class Statement implements Countable, IteratorAggregate
     }
 
     /**
+     * Return a single scalar value from the first row and first column.
+     *
+     * Ideal for aggregate queries:
+     *   $client->query('SELECT count() FROM events')->value() // → 42
+     *
+     * @return mixed
+     */
+    public function value(): mixed
+    {
+        $row = $this->first();
+
+        if ($row === null) {
+            return null;
+        }
+
+        return reset($row);
+    }
+
+    /**
+     * Return a flat array of values for a single column across all rows.
+     *
+     * Ideal for SELECT-one-column queries:
+     *   $client->query('SELECT id FROM users')->pluck('id') // → [1, 2, 3]
+     *
+     * @param string $column
+     * @return array
+     */
+    public function pluck(string $column): array
+    {
+        return array_column($this->rows(), $column);
+    }
+
+    /**
      * Return the number of rows in the result.
      *
      * @return int
