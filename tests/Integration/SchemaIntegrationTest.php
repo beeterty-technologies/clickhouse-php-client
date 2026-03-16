@@ -41,7 +41,9 @@ class SchemaIntegrationTest extends IntegrationTestCase
         $this->client->schema()->create($this->table, function (Blueprint $t) {
             $t->uint64('id');
             $t->string('status')->lowCardinality()->default('active');
-            $t->dateTime('created_at', 'UTC')->nullable();
+            // Not nullable — ClickHouse forbids nullable columns in ORDER BY / PARTITION BY
+            // keys unless `allow_nullable_key` is enabled.
+            $t->dateTime('created_at', 'UTC');
             $t->uint32('score')->default(0)->comment('User score');
             $t->engine(new MergeTree())
               ->orderBy(['id', 'created_at'])
@@ -226,20 +228,22 @@ class SchemaIntegrationTest extends IntegrationTestCase
     public function test_alter_modify_column(): void
     {
         $this->client->schema()->create($this->table, function (Blueprint $t) {
-            $t->uint32('id');
+            $t->uint64('id');
+            $t->uint32('score');          // non-key column we will widen
             $t->string('note');
             $t->engine(new MergeTree())->orderBy(['id']);
         });
 
-        // Widen uint32 → uint64
+        // Widen non-key column uint32 → uint64.
+        // ClickHouse forbids altering key/order-by columns (Code 524).
         $this->client->schema()->table($this->table, function (Blueprint $t) {
-            $t->uint64('id')->change();
+            $t->uint64('score')->change();
         });
 
         $columns = $this->client->schema()->getColumns($this->table);
-        $id      = current(array_filter($columns, fn($c) => $c['name'] === 'id'));
+        $score   = current(array_filter($columns, fn($c) => $c['name'] === 'score'));
 
-        $this->assertSame('UInt64', $id['type']);
+        $this->assertSame('UInt64', $score['type']);
     }
 
     // ─── drop() ───────────────────────────────────────────────────────────────
