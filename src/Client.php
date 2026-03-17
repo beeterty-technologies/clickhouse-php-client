@@ -29,14 +29,6 @@ class Client
     }
 
     /**
-     * Close the cURL handle when the client is destroyed.
-     */
-    public function __destruct()
-    {
-        curl_close($this->curl);
-    }
-
-    /**
      * Return a Schema instance for DDL operations on this connection.
      *
      * @return Schema
@@ -44,6 +36,17 @@ class Client
     public function schema(): Schema
     {
         return new Schema($this);
+    }
+
+    /**
+     * Return a fluent QueryBuilder scoped to the given table.
+     *
+     * @param string $table
+     * @return QueryBuilder
+     */
+    public function table(string $table): QueryBuilder
+    {
+        return (new QueryBuilder($this))->table($table);
     }
 
     /**
@@ -75,6 +78,7 @@ class Client
     public function query(string $sql, array $bindings = [], ?Format $format = null): Statement
     {
         $format ??= new JsonEachRow();
+
         $sql = $this->bindParams($sql, $bindings) . ' FORMAT ' . $format->name();
         $result = $this->send($sql);
 
@@ -93,8 +97,9 @@ class Client
      */
     public function insert(string $table, array $rows, ?Format $format = null): bool
     {
-        $format = $format ?? new JsonEachRow();
-        $sql    = "INSERT INTO {$table} FORMAT " . $format->name();
+        $format ??= new JsonEachRow();
+
+        $sql = "INSERT INTO {$table} FORMAT " . $format->name();
 
         $this->send($sql, $format->encode($rows));
 
@@ -118,6 +123,83 @@ class Client
     }
 
     /**
+     * Fire a DDL/DML query without waiting for it to complete.
+     *
+     * Uses wait_end_of_query=0 and a short read timeout so that the method
+     * returns as soon as the query has been submitted. The query continues
+     * running on the server (ClickHouse does not cancel write/DDL operations
+     * when the HTTP client disconnects).
+     *
+     * Returns a query_id that can be passed to isRunning() or kill().
+     *
+     * Note: best suited for DDL and long-running write operations (OPTIMIZE,
+     * ALTER, INSERT SELECT). SELECT queries may be cancelled server-side on
+     * disconnect depending on ClickHouse's cancel_http_readonly_queries_on_client_close setting.
+     *
+     * @param string $sql
+     * @param array  $bindings
+     * @return string The generated query_id
+     * @throws ConnectionException
+     */
+    public function executeAsync(string $sql, array $bindings = []): string
+    {
+        $queryId = uniqid('async_', true);
+        $sql = $this->bindParams($sql, $bindings);
+
+        $url = $this->config->dataSource() . '/?' . http_build_query([
+            'database' => $this->config->database,
+            'query' => $sql,
+            'query_id' => $queryId,
+            'wait_end_of_query' => 0,
+        ]);
+
+        $ch = curl_init();
+
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => '',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => $this->config->connectTimeout,
+            CURLOPT_TIMEOUT_MS => 2000,
+            CURLOPT_HTTPHEADER => $this->authHeaders(),
+        ]);
+
+        curl_exec($ch);
+
+        return $queryId;
+    }
+
+    /**
+     * Return true if a query with the given query_id is still executing.
+     *
+     * @param string $queryId
+     * @return bool
+     */
+    public function isRunning(string $queryId): bool
+    {
+        return !$this->query(
+            'SELECT query_id FROM system.processes WHERE query_id = :id',
+            ['id' => $queryId],
+        )->isEmpty();
+    }
+
+    /**
+     * Kill a running query by its query_id.
+     *
+     * @param string $queryId
+     * @return bool
+     */
+    public function kill(string $queryId): bool
+    {
+        $escaped = str_replace(["\\", "'"], ["\\\\", "\\'"], $queryId);
+
+        $this->execute("KILL QUERY WHERE query_id = '{$escaped}'");
+
+        return true;
+    }
+
+    /**
      * Substitute named placeholders (:name) in a SQL string.
      *
      * @param string $sql
@@ -136,6 +218,20 @@ class Client
         }
 
         return $sql;
+    }
+
+    /**
+     * Return the standard ClickHouse authentication headers used by every request.
+     *
+     * @return string[]
+     */
+    private function authHeaders(): array
+    {
+        return [
+            'X-ClickHouse-User: ' . $this->config->username,
+            'X-ClickHouse-Key: '  . $this->config->password,
+            'Content-Type: text/plain',
+        ];
     }
 
     /**
@@ -165,6 +261,12 @@ class Client
      * ClickHouse treats GET as readonly (Code 164) and rejects DDL/DML over it.
      * For INSERT statements $body carries the row data; it is empty otherwise.
      *
+     * When $config->retries > 0, connection failures are retried up to that many
+     * extra times with $config->retryDelay milliseconds between attempts.
+     *
+     * When $config->compression is true, non-empty bodies are gzip-compressed
+     * before sending. Responses are always decompressed by cURL automatically.
+     *
      * @param string $sql
      * @param string $body
      * @return array{body: string, headers: array<string, string>}
@@ -173,11 +275,50 @@ class Client
      */
     private function send(string $sql, string $body = ''): array
     {
+        $lastException = new ConnectionException('ClickHouse connection failed');
+
+        for ($attempt = 0; $attempt <= $this->config->retries; $attempt++) {
+            if ($attempt > 0) {
+                usleep($this->config->retryDelay * 1000);
+            }
+
+            try {
+                return $this->attempt($sql, $body);
+            } catch (ConnectionException $e) {
+                $lastException = $e;
+            }
+        }
+
+        throw $lastException;
+    }
+
+    /**
+     * Perform a single HTTP attempt.
+     *
+     * @param string $sql
+     * @param string $body
+     * @return array{body: string, headers: array<string, string>}
+     * @throws ConnectionException
+     * @throws QueryException
+     */
+    private function attempt(string $sql, string $body): array
+    {
         $url = $this->config->dataSource() . '/?' . http_build_query([
             'database' => $this->config->database,
             'query' => $sql,
             'wait_end_of_query' => 1,
         ]);
+
+        $headers = $this->authHeaders();
+
+        if ($this->config->compression && $body !== '') {
+            $compressed = gzencode($body, 1);
+
+            if ($compressed !== false) {
+                $body = $compressed;
+                $headers[] = 'Content-Encoding: gzip';
+            }
+        }
 
         $responseHeaders = [];
 
@@ -186,11 +327,8 @@ class Client
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => $this->config->timeout,
             CURLOPT_CONNECTTIMEOUT => $this->config->connectTimeout,
-            CURLOPT_HTTPHEADER => [
-                'X-ClickHouse-User: ' . $this->config->username,
-                'X-ClickHouse-Key: '  . $this->config->password,
-                'Content-Type: text/plain',
-            ],
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_ENCODING => '',
             CURLOPT_HEADERFUNCTION => function ($curl, $header) use (&$responseHeaders): int {
                 $parts = explode(':', $header, 2);
 
@@ -201,9 +339,6 @@ class Client
             },
         ]);
 
-        // Always POST — ClickHouse treats GET as readonly (Code 164).
-        // The SQL travels in the ?query= URL parameter; $body carries
-        // INSERT row data (empty string for all other query types).
         curl_setopt($this->curl, CURLOPT_POST, true);
         curl_setopt($this->curl, CURLOPT_POSTFIELDS, $body);
 

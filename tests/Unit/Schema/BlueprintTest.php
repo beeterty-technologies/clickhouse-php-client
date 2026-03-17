@@ -2,159 +2,200 @@
 
 namespace Beeterty\ClickHouse\Tests\Unit\Schema;
 
-use Beeterty\ClickHouse\Schema\Blueprint;
-use Beeterty\ClickHouse\Schema\ColumnDefinition;
-use Beeterty\ClickHouse\Schema\Engine\AggregatingMergeTree;
-use Beeterty\ClickHouse\Schema\Engine\CollapsingMergeTree;
+use Beeterty\ClickHouse\Schema\{Blueprint, ColumnDefinition};
 use Beeterty\ClickHouse\Schema\Engine\MergeTree;
-use Beeterty\ClickHouse\Schema\Engine\ReplacingMergeTree;
 use PHPUnit\Framework\TestCase;
 
 class BlueprintTest extends TestCase
 {
-    private function bp(): Blueprint
+    private function blueprint(): Blueprint
     {
         return new Blueprint();
     }
 
-    // ─── Integer columns ──────────────────────────────────────────────────────
+    // [Integer columns]
 
-    public function test_uint8(): void  { $this->assertSame('`x` UInt8',   $this->bp()->uint8('x')->toSql());  }
-    public function test_uint16(): void { $this->assertSame('`x` UInt16',  $this->bp()->uint16('x')->toSql()); }
-    public function test_uint32(): void { $this->assertSame('`x` UInt32',  $this->bp()->uint32('x')->toSql()); }
-    public function test_uint64(): void { $this->assertSame('`x` UInt64',  $this->bp()->uint64('x')->toSql()); }
-    public function test_int8(): void   { $this->assertSame('`x` Int8',    $this->bp()->int8('x')->toSql());   }
-    public function test_int16(): void  { $this->assertSame('`x` Int16',   $this->bp()->int16('x')->toSql());  }
-    public function test_int32(): void  { $this->assertSame('`x` Int32',   $this->bp()->int32('x')->toSql());  }
-    public function test_int64(): void  { $this->assertSame('`x` Int64',   $this->bp()->int64('x')->toSql());  }
+    public function test_uint8(): void
+    {
+        $this->assertSame('`x` UInt8',   $this->blueprint()->uint8('x')->toSql());
+    }
+    public function test_uint16(): void
+    {
+        $this->assertSame('`x` UInt16',  $this->blueprint()->uint16('x')->toSql());
+    }
+    public function test_uint32(): void
+    {
+        $this->assertSame('`x` UInt32',  $this->blueprint()->uint32('x')->toSql());
+    }
+    public function test_uint64(): void
+    {
+        $this->assertSame('`x` UInt64',  $this->blueprint()->uint64('x')->toSql());
+    }
+    public function test_int8(): void
+    {
+        $this->assertSame('`x` Int8',    $this->blueprint()->int8('x')->toSql());
+    }
+    public function test_int16(): void
+    {
+        $this->assertSame('`x` Int16',   $this->blueprint()->int16('x')->toSql());
+    }
+    public function test_int32(): void
+    {
+        $this->assertSame('`x` Int32',   $this->blueprint()->int32('x')->toSql());
+    }
+    public function test_int64(): void
+    {
+        $this->assertSame('`x` Int64',   $this->blueprint()->int64('x')->toSql());
+    }
 
-    // ─── Float columns ────────────────────────────────────────────────────────
+    // [Float columns]
 
-    public function test_float32(): void { $this->assertSame('`x` Float32', $this->bp()->float32('x')->toSql()); }
-    public function test_float64(): void { $this->assertSame('`x` Float64', $this->bp()->float64('x')->toSql()); }
+    public function test_float32(): void
+    {
+        $this->assertSame('`x` Float32', $this->blueprint()->float32('x')->toSql());
+    }
+    public function test_float64(): void
+    {
+        $this->assertSame('`x` Float64', $this->blueprint()->float64('x')->toSql());
+    }
 
-    // ─── Decimal ──────────────────────────────────────────────────────────────
+    // [Decimal]
 
     public function test_decimal(): void
     {
-        $this->assertSame('`price` Decimal(10, 2)', $this->bp()->decimal('price', 10, 2)->toSql());
+        $this->assertSame('`price` Decimal(10, 2)', $this->blueprint()->decimal('price', 10, 2)->toSql());
     }
 
-    // ─── String types ─────────────────────────────────────────────────────────
+    // [String types]
 
     public function test_string(): void
     {
-        $this->assertSame('`name` String', $this->bp()->string('name')->toSql());
+        $this->assertSame('`name` String', $this->blueprint()->string('name')->toSql());
     }
 
     public function test_fixed_string(): void
     {
-        $this->assertSame('`code` FixedString(10)', $this->bp()->fixedString('code', 10)->toSql());
+        $this->assertSame('`code` FixedString(10)', $this->blueprint()->fixedString('code', 10)->toSql());
     }
 
-    // ─── Date / Time ──────────────────────────────────────────────────────────
+    // [Date / Time]
 
     public function test_date(): void
     {
-        $this->assertSame('`d` Date', $this->bp()->date('d')->toSql());
+        $this->assertSame('`d` Date', $this->blueprint()->date('d')->toSql());
     }
 
     public function test_date_time_without_timezone(): void
     {
-        $this->assertSame('`ts` DateTime', $this->bp()->dateTime('ts')->toSql());
+        $this->assertSame('`ts` DateTime', $this->blueprint()->dateTime('ts')->toSql());
     }
 
     public function test_date_time_with_timezone(): void
     {
-        $this->assertSame("`ts` DateTime('UTC')", $this->bp()->dateTime('ts', 'UTC')->toSql());
+        $this->assertSame("`ts` DateTime('UTC')", $this->blueprint()->dateTime('ts', 'UTC')->toSql());
     }
 
     public function test_date_time64_default_precision(): void
     {
-        $this->assertSame('`ts` DateTime64(3)', $this->bp()->dateTime64('ts')->toSql());
+        $this->assertSame('`ts` DateTime64(3)', $this->blueprint()->dateTime64('ts')->toSql());
     }
 
     public function test_date_time64_with_precision_and_timezone(): void
     {
-        $this->assertSame("`ts` DateTime64(6, 'UTC')", $this->bp()->dateTime64('ts', 6, 'UTC')->toSql());
+        $this->assertSame("`ts` DateTime64(6, 'UTC')", $this->blueprint()->dateTime64('ts', 6, 'UTC')->toSql());
     }
 
-    // ─── Boolean / UUID ───────────────────────────────────────────────────────
+    // [Boolean / UUID]
 
-    public function test_boolean(): void { $this->assertSame('`active` Bool', $this->bp()->boolean('active')->toSql()); }
-    public function test_uuid(): void    { $this->assertSame('`id` UUID',     $this->bp()->uuid('id')->toSql());         }
+    public function test_boolean(): void
+    {
+        $this->assertSame('`active` Bool', $this->blueprint()->boolean('active')->toSql());
+    }
+    public function test_uuid(): void
+    {
+        $this->assertSame('`id` UUID',     $this->blueprint()->uuid('id')->toSql());
+    }
 
-    // ─── Enum ─────────────────────────────────────────────────────────────────
+    // [Enum]
 
     public function test_enum8_with_explicit_values(): void
     {
-        $col = $this->bp()->enum8('status', ['active' => 1, 'inactive' => 2]);
+        $col = $this->blueprint()->enum8('status', ['active' => 1, 'inactive' => 2]);
 
         $this->assertSame("`status` Enum8('active' = 1, 'inactive' = 2)", $col->toSql());
     }
 
     public function test_enum8_with_auto_indexed_values(): void
     {
-        $col = $this->bp()->enum8('status', ['active', 'inactive']);
+        $col = $this->blueprint()->enum8('status', ['active', 'inactive']);
 
         $this->assertSame("`status` Enum8('active' = 1, 'inactive' = 2)", $col->toSql());
     }
 
     public function test_enum16(): void
     {
-        $col = $this->bp()->enum16('priority', ['low' => 1, 'high' => 2]);
+        $col = $this->blueprint()->enum16('priority', ['low' => 1, 'high' => 2]);
 
         $this->assertStringContainsString('Enum16', $col->toSql());
     }
 
-    // ─── IP types ─────────────────────────────────────────────────────────────
+    // [IP types]
 
-    public function test_ipv4(): void { $this->assertSame('`ip` IPv4', $this->bp()->ipv4('ip')->toSql()); }
-    public function test_ipv6(): void { $this->assertSame('`ip` IPv6', $this->bp()->ipv6('ip')->toSql()); }
+    public function test_ipv4(): void
+    {
+        $this->assertSame('`ip` IPv4', $this->blueprint()->ipv4('ip')->toSql());
+    }
+    public function test_ipv6(): void
+    {
+        $this->assertSame('`ip` IPv6', $this->blueprint()->ipv6('ip')->toSql());
+    }
 
-    // ─── JSON ─────────────────────────────────────────────────────────────────
+    // [JSON]
 
-    public function test_json(): void { $this->assertSame('`data` JSON', $this->bp()->json('data')->toSql()); }
+    public function test_json(): void
+    {
+        $this->assertSame('`data` JSON', $this->blueprint()->json('data')->toSql());
+    }
 
-    // ─── Complex types ────────────────────────────────────────────────────────
+    // [Complex types]
 
     public function test_array(): void
     {
-        $this->assertSame('`tags` Array(String)', $this->bp()->array('tags', 'String')->toSql());
+        $this->assertSame('`tags` Array(String)', $this->blueprint()->array('tags', 'String')->toSql());
     }
 
     public function test_map(): void
     {
-        $this->assertSame('`meta` Map(String, String)', $this->bp()->map('meta', 'String', 'String')->toSql());
+        $this->assertSame('`meta` Map(String, String)', $this->blueprint()->map('meta', 'String', 'String')->toSql());
     }
 
     public function test_tuple(): void
     {
-        $this->assertSame('`coords` Tuple(Float64, Float64)', $this->bp()->tuple('coords', 'Float64', 'Float64')->toSql());
+        $this->assertSame('`coords` Tuple(Float64, Float64)', $this->blueprint()->tuple('coords', 'Float64', 'Float64')->toSql());
     }
 
-    // ─── Convenience shorthands ───────────────────────────────────────────────
+    // [Convenience shorthands]
 
     public function test_id_creates_uint64_named_id(): void
     {
-        $col = $this->bp()->id();
+        $col = $this->blueprint()->id();
 
         $this->assertSame('`id` UInt64', $col->toSql());
     }
 
     public function test_id_accepts_custom_name(): void
     {
-        $col = $this->bp()->id('user_id');
+        $col = $this->blueprint()->id('user_id');
 
         $this->assertSame('`user_id` UInt64', $col->toSql());
     }
 
     public function test_timestamps_adds_created_at_and_updated_at(): void
     {
-        $bp = $this->bp();
-        $bp->timestamps();
+        $table = $this->blueprint();
+        $table->timestamps();
 
-        $columns = $bp->getColumns();
+        $columns = $table->getColumns();
 
         $this->assertCount(2, $columns);
         $this->assertSame('created_at', $columns[0]->getName());
@@ -163,10 +204,10 @@ class BlueprintTest extends TestCase
 
     public function test_timestamps_columns_are_nullable(): void
     {
-        $bp = $this->bp();
-        $bp->timestamps();
+        $table = $this->blueprint();
+        $table->timestamps();
 
-        $columns = $bp->getColumns();
+        $columns = $table->getColumns();
 
         $this->assertStringContainsString('Nullable', $columns[0]->toSql());
         $this->assertStringContainsString('Nullable', $columns[1]->toSql());
@@ -174,10 +215,10 @@ class BlueprintTest extends TestCase
 
     public function test_soft_deletes_adds_deleted_at(): void
     {
-        $bp = $this->bp();
-        $bp->softDeletes();
+        $table = $this->blueprint();
+        $table->softDeletes();
 
-        $columns = $bp->getColumns();
+        $columns = $table->getColumns();
 
         $this->assertCount(1, $columns);
         $this->assertSame('deleted_at', $columns[0]->getName());
@@ -186,123 +227,123 @@ class BlueprintTest extends TestCase
 
     public function test_soft_deletes_accepts_custom_column_name(): void
     {
-        $bp = $this->bp();
-        $bp->softDeletes('removed_at');
+        $table = $this->blueprint();
+        $table->softDeletes('removed_at');
 
-        $this->assertSame('removed_at', $bp->getColumns()[0]->getName());
+        $this->assertSame('removed_at', $table->getColumns()[0]->getName());
     }
 
     public function test_raw_column(): void
     {
-        $col = $this->bp()->rawColumn('data', 'Tuple(UInt32, String)');
+        $col = $this->blueprint()->rawColumn('data', 'Tuple(UInt32, String)');
 
         $this->assertSame('`data` Tuple(UInt32, String)', $col->toSql());
     }
 
-    // ─── ALTER helpers ────────────────────────────────────────────────────────
+    // [ALTER helpers]
 
     public function test_drop_column_adds_to_drops(): void
     {
-        $bp = $this->bp();
-        $bp->dropColumn('legacy');
+        $table = $this->blueprint();
+        $table->dropColumn('legacy');
 
-        $this->assertContains('legacy', $bp->getDrops());
+        $this->assertContains('legacy', $table->getDrops());
     }
 
     public function test_drop_timestamps_adds_both_columns(): void
     {
-        $bp = $this->bp();
-        $bp->dropTimestamps();
+        $table = $this->blueprint();
+        $table->dropTimestamps();
 
-        $this->assertContains('created_at', $bp->getDrops());
-        $this->assertContains('updated_at', $bp->getDrops());
+        $this->assertContains('created_at', $table->getDrops());
+        $this->assertContains('updated_at', $table->getDrops());
     }
 
     public function test_drop_soft_deletes_adds_deleted_at(): void
     {
-        $bp = $this->bp();
-        $bp->dropSoftDeletes();
+        $table = $this->blueprint();
+        $table->dropSoftDeletes();
 
-        $this->assertContains('deleted_at', $bp->getDrops());
+        $this->assertContains('deleted_at', $table->getDrops());
     }
 
     public function test_drop_soft_deletes_accepts_custom_name(): void
     {
-        $bp = $this->bp();
-        $bp->dropSoftDeletes('removed_at');
+        $table = $this->blueprint();
+        $table->dropSoftDeletes('removed_at');
 
-        $this->assertContains('removed_at', $bp->getDrops());
+        $this->assertContains('removed_at', $table->getDrops());
     }
 
     public function test_rename_column(): void
     {
-        $bp = $this->bp();
-        $bp->renameColumn('old_name', 'new_name');
+        $table = $this->blueprint();
+        $table->renameColumn('old_name', 'new_name');
 
-        $renames = $bp->getRenames();
+        $renames = $table->getRenames();
 
         $this->assertCount(1, $renames);
         $this->assertSame('old_name', $renames[0]['from']);
         $this->assertSame('new_name', $renames[0]['to']);
     }
 
-    // ─── Engine & table options ───────────────────────────────────────────────
+    // [Engine & table options]
 
     public function test_engine_is_stored(): void
     {
-        $bp = $this->bp();
-        $bp->engine(new MergeTree());
+        $table = $this->blueprint();
+        $table->engine(new MergeTree());
 
-        $this->assertInstanceOf(MergeTree::class, $bp->getEngine());
+        $this->assertInstanceOf(MergeTree::class, $table->getEngine());
     }
 
     public function test_order_by_string_is_cast_to_array(): void
     {
-        $bp = $this->bp();
-        $bp->orderBy('created_at');
+        $table = $this->blueprint();
+        $table->orderBy('created_at');
 
-        $this->assertSame(['created_at'], $bp->getOrderBy());
+        $this->assertSame(['created_at'], $table->getOrderBy());
     }
 
     public function test_order_by_array(): void
     {
-        $bp = $this->bp();
-        $bp->orderBy(['id', 'created_at']);
+        $table = $this->blueprint();
+        $table->orderBy(['id', 'created_at']);
 
-        $this->assertSame(['id', 'created_at'], $bp->getOrderBy());
+        $this->assertSame(['id', 'created_at'], $table->getOrderBy());
     }
 
     public function test_partition_by(): void
     {
-        $bp = $this->bp();
-        $bp->partitionBy('toYYYYMM(created_at)');
+        $table = $this->blueprint();
+        $table->partitionBy('toYYYYMM(created_at)');
 
-        $this->assertSame('toYYYYMM(created_at)', $bp->getPartitionBy());
+        $this->assertSame('toYYYYMM(created_at)', $table->getPartitionBy());
     }
 
     public function test_primary_key(): void
     {
-        $bp = $this->bp();
-        $bp->primaryKey('id');
+        $table = $this->blueprint();
+        $table->primaryKey('id');
 
-        $this->assertSame('id', $bp->getPrimaryKey());
+        $this->assertSame('id', $table->getPrimaryKey());
     }
 
     public function test_sample_by(): void
     {
-        $bp = $this->bp();
-        $bp->sampleBy('intHash32(id)');
+        $table = $this->blueprint();
+        $table->sampleBy('intHash32(id)');
 
-        $this->assertSame('intHash32(id)', $bp->getSampleBy());
+        $this->assertSame('intHash32(id)', $table->getSampleBy());
     }
 
     public function test_settings_are_merged(): void
     {
-        $bp = $this->bp();
-        $bp->settings(['index_granularity' => 8192]);
-        $bp->settings(['merge_with_ttl_timeout' => 86400]);
+        $table = $this->blueprint();
+        $table->settings(['index_granularity' => 8192]);
+        $table->settings(['merge_with_ttl_timeout' => 86400]);
 
-        $settings = $bp->getSettings();
+        $settings = $table->getSettings();
 
         $this->assertSame(8192, $settings['index_granularity']);
         $this->assertSame(86400, $settings['merge_with_ttl_timeout']);
@@ -310,36 +351,36 @@ class BlueprintTest extends TestCase
 
     public function test_ttl(): void
     {
-        $bp = $this->bp();
-        $bp->ttl('created_at + INTERVAL 1 YEAR');
+        $table = $this->blueprint();
+        $table->ttl('created_at + INTERVAL 1 YEAR');
 
-        $this->assertSame('created_at + INTERVAL 1 YEAR', $bp->getTtl());
+        $this->assertSame('created_at + INTERVAL 1 YEAR', $table->getTtl());
     }
 
     public function test_comment(): void
     {
-        $bp = $this->bp();
-        $bp->comment('User events table');
+        $table = $this->blueprint();
+        $table->comment('User events table');
 
-        $this->assertSame('User events table', $bp->getComment());
+        $this->assertSame('User events table', $table->getComment());
     }
 
-    // ─── Column registration ──────────────────────────────────────────────────
+    // [Column registration]
 
     public function test_get_columns_returns_all_defined_columns(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->string('name');
-        $bp->dateTime('ts');
+        $table = $this->blueprint();
+        $table->uint64('id');
+        $table->string('name');
+        $table->dateTime('ts');
 
-        $this->assertCount(3, $bp->getColumns());
-        $this->assertContainsOnlyInstancesOf(ColumnDefinition::class, $bp->getColumns());
+        $this->assertCount(3, $table->getColumns());
+        $this->assertContainsOnlyInstancesOf(ColumnDefinition::class, $table->getColumns());
     }
 
     public function test_column_methods_return_column_definition(): void
     {
-        $col = $this->bp()->string('name');
+        $col = $this->blueprint()->string('name');
 
         $this->assertInstanceOf(ColumnDefinition::class, $col);
     }

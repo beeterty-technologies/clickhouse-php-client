@@ -7,207 +7,205 @@ use PHPUnit\Framework\TestCase;
 
 class ColumnDefinitionTest extends TestCase
 {
-    // ─── Basic toSql() ────────────────────────────────────────────────────────
+    // [Basic toSql()]
 
     public function test_basic_column_sql(): void
     {
-        $col = new ColumnDefinition('id', 'UInt64');
+        $column = new ColumnDefinition('id', 'UInt64');
 
-        $this->assertSame('`id` UInt64', $col->toSql());
+        $this->assertSame('`id` UInt64', $column->toSql());
     }
 
     public function test_get_name(): void
     {
-        $col = new ColumnDefinition('created_at', 'DateTime');
+        $column = new ColumnDefinition('created_at', 'DateTime');
 
-        $this->assertSame('created_at', $col->getName());
+        $this->assertSame('created_at', $column->getName());
     }
 
-    // ─── nullable() ───────────────────────────────────────────────────────────
+    // [nullable()]
 
     public function test_nullable_wraps_type(): void
     {
-        $col = new ColumnDefinition('name', 'String');
-        $col->nullable();
+        $column = new ColumnDefinition('name', 'String');
+        $column->nullable();
 
-        $this->assertSame('`name` Nullable(String)', $col->toSql());
+        $this->assertSame('`name` Nullable(String)', $column->toSql());
     }
 
     public function test_nullable_returns_static_for_chaining(): void
     {
-        $col = new ColumnDefinition('name', 'String');
+        $column = new ColumnDefinition('name', 'String');
 
-        $this->assertSame($col, $col->nullable());
+        $this->assertSame($column, $column->nullable());
     }
 
-    // ─── lowCardinality() ─────────────────────────────────────────────────────
+    // [lowCardinality()]
 
     public function test_low_cardinality_wraps_type(): void
     {
-        $col = new ColumnDefinition('status', 'String');
-        $col->lowCardinality();
+        $column = new ColumnDefinition('status', 'String');
+        $column->lowCardinality();
 
-        $this->assertSame('`status` LowCardinality(String)', $col->toSql());
+        $this->assertSame('`status` LowCardinality(String)', $column->toSql());
     }
 
     public function test_nullable_then_low_cardinality(): void
     {
-        $col = new ColumnDefinition('status', 'String');
-        $col->nullable()->lowCardinality();
+        $column = new ColumnDefinition('status', 'String');
+        $column->nullable()->lowCardinality();
 
-        $this->assertSame('`status` LowCardinality(Nullable(String))', $col->toSql());
+        $this->assertSame('`status` LowCardinality(Nullable(String))', $column->toSql());
     }
 
-    // ─── default() ────────────────────────────────────────────────────────────
+    // [default()]
 
     public function test_default_string_value(): void
     {
-        $col = new ColumnDefinition('status', 'String');
-        $col->default('active');
+        $column = new ColumnDefinition('status', 'String');
+        $column->default('active');
 
-        $this->assertSame("`status` String DEFAULT 'active'", $col->toSql());
+        $this->assertSame("`status` String DEFAULT 'active'", $column->toSql());
     }
 
     public function test_default_integer_value(): void
     {
-        $col = new ColumnDefinition('count', 'UInt32');
-        $col->default(0);
+        $column = new ColumnDefinition('count', 'UInt32');
+        $column->default(0);
 
-        $this->assertSame('`count` UInt32 DEFAULT 0', $col->toSql());
+        $this->assertSame('`count` UInt32 DEFAULT 0', $column->toSql());
     }
 
     public function test_default_float_value(): void
     {
-        $col = new ColumnDefinition('ratio', 'Float64');
-        $col->default(0.5);
+        $column = new ColumnDefinition('ratio', 'Float64');
+        $column->default(0.5);
 
-        $this->assertSame('`ratio` Float64 DEFAULT 0.5', $col->toSql());
+        $this->assertSame('`ratio` Float64 DEFAULT 0.5', $column->toSql());
     }
 
     public function test_default_bool_true(): void
     {
-        $col = new ColumnDefinition('active', 'Bool');
-        $col->default(true);
+        $column = new ColumnDefinition('active', 'Bool');
+        $column->default(true);
 
-        $this->assertSame('`active` Bool DEFAULT 1', $col->toSql());
+        $this->assertSame('`active` Bool DEFAULT 1', $column->toSql());
     }
 
     public function test_default_bool_false(): void
     {
-        $col = new ColumnDefinition('active', 'Bool');
-        $col->default(false);
+        $column = new ColumnDefinition('active', 'Bool');
+        $column->default(false);
 
-        $this->assertSame('`active` Bool DEFAULT 0', $col->toSql());
+        $this->assertSame('`active` Bool DEFAULT 0', $column->toSql());
     }
 
     public function test_default_null_value(): void
     {
-        $col = new ColumnDefinition('name', 'String');
-        $col->nullable()->default(null);
+        $column = new ColumnDefinition('name', 'String');
+        $column->nullable()->default(null);
 
-        $this->assertSame('`name` Nullable(String) DEFAULT NULL', $col->toSql());
+        $this->assertSame('`name` Nullable(String) DEFAULT NULL', $column->toSql());
     }
 
-    // ─── comment() ────────────────────────────────────────────────────────────
+    // [comment()]
 
     public function test_comment_appended_to_sql(): void
     {
-        $col = new ColumnDefinition('id', 'UInt64');
-        $col->comment('Primary key');
+        $column = new ColumnDefinition('id', 'UInt64');
+        $column->comment('Primary key');
 
-        $this->assertSame("`id` UInt64 COMMENT 'Primary key'", $col->toSql());
+        $this->assertSame("`id` UInt64 COMMENT 'Primary key'", $column->toSql());
     }
 
     public function test_comment_escapes_single_quotes(): void
     {
-        $col = new ColumnDefinition('note', 'String');
-        $col->comment("User's note");
+        $column = new ColumnDefinition('note', 'String');
+        $column->comment("User's note");
 
-        $this->assertStringContainsString("COMMENT 'User\\'s note'", $col->toSql());
+        $this->assertStringContainsString("COMMENT 'User\\'s note'", $column->toSql());
     }
 
-    // ─── codec() ──────────────────────────────────────────────────────────────
+    // [codec()]
 
     public function test_codec_appended_to_sql(): void
     {
-        $col = new ColumnDefinition('ts', 'DateTime');
-        $col->codec('Delta, LZ4');
+        $column = new ColumnDefinition('ts', 'DateTime');
+        $column->codec('Delta, LZ4');
 
-        $this->assertSame('`ts` DateTime CODEC(Delta, LZ4)', $col->toSql());
+        $this->assertSame('`ts` DateTime CODEC(Delta, LZ4)', $column->toSql());
     }
 
-    // ─── ttl() ────────────────────────────────────────────────────────────────
+    // [ttl()]
 
     public function test_ttl_appended_to_sql(): void
     {
-        $col = new ColumnDefinition('ts', 'DateTime');
-        $col->ttl('ts + INTERVAL 1 YEAR');
+        $column = new ColumnDefinition('ts', 'DateTime');
+        $column->ttl('ts + INTERVAL 1 YEAR');
 
-        $this->assertSame('`ts` DateTime TTL ts + INTERVAL 1 YEAR', $col->toSql());
+        $this->assertSame('`ts` DateTime TTL ts + INTERVAL 1 YEAR', $column->toSql());
     }
 
-    // ─── after() ──────────────────────────────────────────────────────────────
+    // [after()]
 
     public function test_get_after_is_null_by_default(): void
     {
-        $col = new ColumnDefinition('email', 'String');
+        $column = new ColumnDefinition('email', 'String');
 
-        $this->assertNull($col->getAfter());
+        $this->assertNull($column->getAfter());
     }
 
     public function test_after_stores_column_name(): void
     {
-        $col = new ColumnDefinition('email', 'String');
-        $col->after('name');
+        $column = new ColumnDefinition('email', 'String');
+        $column->after('name');
 
-        $this->assertSame('name', $col->getAfter());
+        $this->assertSame('name', $column->getAfter());
     }
 
     public function test_after_does_not_affect_to_sql(): void
     {
-        // AFTER is handled by Grammar, not toSql()
-        $col = new ColumnDefinition('email', 'String');
-        $col->after('name');
+        $column = new ColumnDefinition('email', 'String');
+        $column->after('name');
 
-        $this->assertSame('`email` String', $col->toSql());
+        $this->assertSame('`email` String', $column->toSql());
     }
 
-    // ─── change() ─────────────────────────────────────────────────────────────
+    // [change()]
 
     public function test_is_change_is_false_by_default(): void
     {
-        $col = new ColumnDefinition('id', 'UInt64');
+        $column = new ColumnDefinition('id', 'UInt64');
 
-        $this->assertFalse($col->isChange());
+        $this->assertFalse($column->isChange());
     }
 
     public function test_change_marks_column_as_modification(): void
     {
-        $col = new ColumnDefinition('id', 'UInt64');
-        $col->change();
+        $column = new ColumnDefinition('id', 'UInt64');
+        $column->change();
 
-        $this->assertTrue($col->isChange());
+        $this->assertTrue($column->isChange());
     }
 
-    // ─── Modifier ordering in toSql() ─────────────────────────────────────────
+    // [Modifier ordering in toSql()]
 
     public function test_all_modifiers_appear_in_correct_order(): void
     {
-        $col = new ColumnDefinition('status', 'String');
-        $col->nullable()
+        $column = new ColumnDefinition('status', 'String');
+        $column->nullable()
             ->lowCardinality()
             ->default('active')
             ->comment('Row status')
             ->codec('ZSTD(1)')
             ->ttl('created_at + INTERVAL 30 DAY');
 
-        $sql = $col->toSql();
+        $sql = $column->toSql();
 
-        // Verify order: type → DEFAULT → COMMENT → CODEC → TTL
-        $defaultPos  = strpos($sql, 'DEFAULT');
-        $commentPos  = strpos($sql, 'COMMENT');
-        $codecPos    = strpos($sql, 'CODEC');
-        $ttlPos      = strpos($sql, 'TTL');
+        $defaultPos = strpos($sql, 'DEFAULT');
+        $commentPos = strpos($sql, 'COMMENT');
+        $codecPos = strpos($sql, 'CODEC');
+        $ttlPos = strpos($sql, 'TTL');
 
         $this->assertLessThan($commentPos, $defaultPos);
         $this->assertLessThan($codecPos, $commentPos);

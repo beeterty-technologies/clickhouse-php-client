@@ -110,4 +110,54 @@ class ConfigTest extends TestCase
 
         $this->assertSame(9000, $config->port);
     }
+
+    // ─── New defaults (retries / retryDelay / compression) ────────────────────
+
+    public function test_default_retries_is_zero(): void
+    {
+        $this->assertSame(0, (new Config())->retries);
+    }
+
+    public function test_default_retry_delay_is_100ms(): void
+    {
+        $this->assertSame(100, (new Config())->retryDelay);
+    }
+
+    public function test_default_compression_is_false(): void
+    {
+        $this->assertFalse((new Config())->compression);
+    }
+
+    public function test_retries_can_be_set(): void
+    {
+        $this->assertSame(3, (new Config(retries: 3))->retries);
+    }
+
+    public function test_compression_can_be_enabled(): void
+    {
+        $this->assertTrue((new Config(compression: true))->compression);
+    }
+
+    public function test_from_array_maps_retries_and_retry_delay(): void
+    {
+        $config = Config::fromArray(['retries' => 3, 'retry_delay' => 500]);
+
+        $this->assertSame(3, $config->retries);
+        $this->assertSame(500, $config->retryDelay);
+    }
+
+    public function test_from_array_maps_compression(): void
+    {
+        $this->assertTrue(Config::fromArray(['compression' => true])->compression);
+    }
+
+    public function test_from_array_defaults_retries_to_zero(): void
+    {
+        $this->assertSame(0, Config::fromArray([])->retries);
+    }
+
+    public function test_from_array_defaults_compression_to_false(): void
+    {
+        $this->assertFalse(Config::fromArray([])->compression);
+    }
 }

@@ -46,9 +46,9 @@ class SchemaIntegrationTest extends IntegrationTestCase
             $t->dateTime('created_at', 'UTC');
             $t->uint32('score')->default(0)->comment('User score');
             $t->engine(new MergeTree())
-              ->orderBy(['id', 'created_at'])
-              ->partitionBy('toYYYYMM(created_at)')
-              ->settings(['index_granularity' => 8192]);
+                ->orderBy(['id', 'created_at'])
+                ->partitionBy('toYYYYMM(created_at)')
+                ->settings(['index_granularity' => 8192]);
         });
 
         $this->assertTrue($this->client->schema()->hasTable($this->table));
