@@ -1,6 +1,6 @@
 # Roadmap
 
-This file tracks planned improvements to the client. Items are checked off as they ship.
+This file tracks planned improvements to the client. Items are checked off as they ship. 🚢
 
 Want to work on something? Open an issue first so we can align on the approach before you invest time in a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
 
@@ -21,15 +21,15 @@ Want to work on something? Open an issue first so we can align on the approach b
 ## HTTP interface features
 
 - [ ] **Settings passthrough** — pass arbitrary ClickHouse query settings per-request or globally via `Config`
-  ```php
-  $client->query('SELECT ...', settings: ['max_result_rows' => 1000, 'max_threads' => 4]);
-  new Config(..., settings: ['max_threads' => 4]);
-  ```
+    ```php
+    $client->query('SELECT ...', settings: ['max_result_rows' => 1000, 'max_threads' => 4]);
+    new Config(..., settings: ['max_threads' => 4]);
+    ```
 - [ ] **Sessions** — `session_id` / `session_timeout` support for temporary tables and stateful queries
-  ```php
-  $session = $client->session('my-session');
-  $session->execute('CREATE TEMPORARY TABLE ...');
-  ```
+    ```php
+    $session = $client->session('my-session');
+    $session->execute('CREATE TEMPORARY TABLE ...');
+    ```
 - [ ] **Roles** — `->withRole('analyst')` fluent method on `Client` that sets the `role` URL parameter
 - [ ] **Profile** — `->withProfile('readonly')` sets the `profile` URL parameter
 - [ ] **Quota key** — `quota_key` URL parameter for per-tenant rate limiting
