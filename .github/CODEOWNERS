@@ -1,0 +1,9 @@
+# CODEOWNERS
+#
+# Every pull request must be approved by at least one member of the
+# @beeterty-technologies/external team before it can be merged.
+#
+# GitHub enforces this automatically when branch protection is enabled on main.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+* @beeterty-technologies/external
