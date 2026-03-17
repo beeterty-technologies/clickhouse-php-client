@@ -18,7 +18,7 @@ Thank you for taking the time to contribute. This document covers everything you
 ## Local setup
 
 ```bash
-git clone https://github.com/beeterty/clickhouse-php-client.git
+git clone https://github.com/beeterty-technologies/clickhouse-php-client.git
 cd clickhouse-php-client
 composer install
 ```
@@ -60,13 +60,13 @@ No password is needed for the default user on a fresh local install.
 
 Environment variables control the connection. The defaults match a standard local install:
 
-| Variable | Default |
-|---|---|
-| `CLICKHOUSE_HOST` | `127.0.0.1` |
-| `CLICKHOUSE_PORT` | `8123` |
-| `CLICKHOUSE_DB` | `default` |
-| `CLICKHOUSE_USERNAME` | `default` |
-| `CLICKHOUSE_PASSWORD` | *(empty)* |
+| Variable              | Default     |
+| --------------------- | ----------- |
+| `CLICKHOUSE_HOST`     | `127.0.0.1` |
+| `CLICKHOUSE_PORT`     | `8123`      |
+| `CLICKHOUSE_DB`       | `default`   |
+| `CLICKHOUSE_USERNAME` | `default`   |
+| `CLICKHOUSE_PASSWORD` | _(empty)_   |
 
 Override any of them as needed:
 
@@ -169,6 +169,20 @@ class MyEngine implements Engine
 ```
 
 2. Add coverage in `tests/Unit/Schema/GrammarTest.php`.
+
+---
+
+## Review policy
+
+This repository is maintained by [Beeterty Technologies](https://github.com/beeterty-technologies). All pull requests require approval from a member of the `@beeterty-technologies/external` team before they can be merged — this is enforced automatically via [CODEOWNERS](.github/CODEOWNERS) and branch protection on `main`.
+
+What this means in practice:
+
+- **Bug fixes and small improvements** — open a PR directly. Include a clear description and make sure CI passes.
+- **New features or anything on the roadmap** — open an issue first so we can discuss the approach before you write code. We want to avoid situations where a well-intentioned PR doesn't align with our direction.
+- **Breaking changes** — discuss in an issue first. We follow semver and breaking changes require a major version bump.
+
+We aim to review PRs within a week. If you haven't heard back after two weeks, feel free to leave a comment on the PR.
 
 ---
 
