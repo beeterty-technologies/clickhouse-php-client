@@ -142,6 +142,31 @@ class Statement implements Countable, IteratorAggregate
     }
 
     /**
+     * Process result rows in batches of $size, calling $callback for each batch.
+     *
+     * Return false from the callback to stop iteration early.
+     *
+     *   $statement->chunk(100, function (array $rows) {
+     *       foreach ($rows as $row) { ... }
+     *   });
+     *
+     * @param int      $size     Number of rows per chunk
+     * @param callable $callback Receives an array of rows; return false to stop
+     */
+    public function chunk(int $size, callable $callback): void
+    {
+        if ($size < 1) {
+            $size = 1;
+        }
+
+        foreach (array_chunk($this->rows(), $size) as $chunk) {
+            if ($callback($chunk) === false) {
+                break;
+            }
+        }
+    }
+
+    /**
      * Get an iterator for the rows in the result.
      *
      * @return Traversable

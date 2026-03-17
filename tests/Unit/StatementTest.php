@@ -184,4 +184,56 @@ class StatementTest extends TestCase
 
         $this->assertSame(2, count($stmt));
     }
+
+    // ─── chunk() ──────────────────────────────────────────────────────────────
+
+    public function test_chunk_calls_callback_for_each_batch(): void
+    {
+        $stmt   = $this->make("{\"id\":1}\n{\"id\":2}\n{\"id\":3}\n{\"id\":4}\n{\"id\":5}");
+        $chunks = [];
+
+        $stmt->chunk(2, function (array $rows) use (&$chunks): void {
+            $chunks[] = $rows;
+        });
+
+        $this->assertCount(3, $chunks);
+        $this->assertCount(2, $chunks[0]);
+        $this->assertCount(2, $chunks[1]);
+        $this->assertCount(1, $chunks[2]);
+    }
+
+    public function test_chunk_stops_when_callback_returns_false(): void
+    {
+        $stmt  = $this->make("{\"id\":1}\n{\"id\":2}\n{\"id\":3}\n{\"id\":4}");
+        $count = 0;
+
+        $stmt->chunk(2, function (array $rows) use (&$count): bool {
+            $count++;
+            return false; // stop after first chunk
+        });
+
+        $this->assertSame(1, $count);
+    }
+
+    public function test_chunk_on_empty_result_never_calls_callback(): void
+    {
+        $stmt  = $this->make('');
+        $count = 0;
+
+        $stmt->chunk(10, function () use (&$count): void {
+            $count++;
+        });
+
+        $this->assertSame(0, $count);
+    }
+
+    public function test_chunk_callback_receives_array_of_arrays(): void
+    {
+        $stmt = $this->make("{\"id\":1,\"name\":\"Alice\"}\n{\"id\":2,\"name\":\"Bob\"}");
+
+        $stmt->chunk(10, function (array $rows): void {
+            $this->assertIsArray($rows[0]);
+            $this->assertArrayHasKey('id', $rows[0]);
+        });
+    }
 }

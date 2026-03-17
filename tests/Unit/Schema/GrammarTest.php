@@ -17,31 +17,32 @@ class GrammarTest extends TestCase
         $this->grammar = new Grammar();
     }
 
-    private function bp(): Blueprint
+    private function blueprint(): Blueprint
     {
         return new Blueprint();
     }
 
-    // ─── compileCreate() ──────────────────────────────────────────────────────
+    // [compileCreate()]
 
     public function test_compile_create_contains_table_name(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->engine(new MergeTree())->orderBy('id');
+        $table = $this->blueprint();
 
-        $sql = $this->grammar->compileCreate('events', $bp);
+        $table->uint64('id');
+        $table->engine(new MergeTree())->orderBy('id');
+
+        $sql = $this->grammar->compileCreate('events', $table);
 
         $this->assertStringContainsString('CREATE TABLE `events`', $sql);
     }
 
     public function test_compile_create_contains_column_definitions(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->string('name');
+        $table = $this->blueprint();;
+        $table->uint64('id');
+        $table->string('name');
 
-        $sql = $this->grammar->compileCreate('events', $bp);
+        $sql = $this->grammar->compileCreate('events', $table);
 
         $this->assertStringContainsString('`id` UInt64', $sql);
         $this->assertStringContainsString('`name` String', $sql);
@@ -49,131 +50,131 @@ class GrammarTest extends TestCase
 
     public function test_compile_create_contains_engine(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->engine(new MergeTree())->orderBy('id');
+        $table = $this->blueprint();;
+        $table->uint64('id');
+        $table->engine(new MergeTree())->orderBy('id');
 
-        $sql = $this->grammar->compileCreate('events', $bp);
+        $sql = $this->grammar->compileCreate('events', $table);
 
         $this->assertStringContainsString('ENGINE = MergeTree()', $sql);
     }
 
     public function test_compile_create_contains_order_by(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->engine(new MergeTree())->orderBy(['id', 'ts']);
+        $table = $this->blueprint();;
+        $table->uint64('id');
+        $table->engine(new MergeTree())->orderBy(['id', 'ts']);
 
-        $sql = $this->grammar->compileCreate('events', $bp);
+        $sql = $this->grammar->compileCreate('events', $table);
 
         $this->assertStringContainsString('ORDER BY (id, ts)', $sql);
     }
 
     public function test_compile_create_contains_partition_by(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->engine(new MergeTree())->orderBy('id')->partitionBy('toYYYYMM(ts)');
+        $table = $this->blueprint();;
+        $table->uint64('id');
+        $table->engine(new MergeTree())->orderBy('id')->partitionBy('toYYYYMM(ts)');
 
-        $sql = $this->grammar->compileCreate('events', $bp);
+        $sql = $this->grammar->compileCreate('events', $table);
 
         $this->assertStringContainsString('PARTITION BY toYYYYMM(ts)', $sql);
     }
 
     public function test_compile_create_contains_primary_key(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->engine(new MergeTree())->orderBy('id')->primaryKey('id');
+        $table = $this->blueprint();;
+        $table->uint64('id');
+        $table->engine(new MergeTree())->orderBy('id')->primaryKey('id');
 
-        $sql = $this->grammar->compileCreate('events', $bp);
+        $sql = $this->grammar->compileCreate('events', $table);
 
         $this->assertStringContainsString('PRIMARY KEY id', $sql);
     }
 
     public function test_compile_create_contains_sample_by(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->engine(new MergeTree())->orderBy('id')->sampleBy('intHash32(id)');
+        $table = $this->blueprint();;
+        $table->uint64('id');
+        $table->engine(new MergeTree())->orderBy('id')->sampleBy('intHash32(id)');
 
-        $sql = $this->grammar->compileCreate('events', $bp);
+        $sql = $this->grammar->compileCreate('events', $table);
 
         $this->assertStringContainsString('SAMPLE BY intHash32(id)', $sql);
     }
 
     public function test_compile_create_contains_settings(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->engine(new MergeTree())->orderBy('id')->settings(['index_granularity' => 8192]);
+        $table = $this->blueprint();;
+        $table->uint64('id');
+        $table->engine(new MergeTree())->orderBy('id')->settings(['index_granularity' => 8192]);
 
-        $sql = $this->grammar->compileCreate('events', $bp);
+        $sql = $this->grammar->compileCreate('events', $table);
 
         $this->assertStringContainsString('SETTINGS index_granularity = 8192', $sql);
     }
 
     public function test_compile_create_contains_table_ttl(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->engine(new MergeTree())->orderBy('id')->ttl('ts + INTERVAL 1 YEAR');
+        $table = $this->blueprint();;
+        $table->uint64('id');
+        $table->engine(new MergeTree())->orderBy('id')->ttl('ts + INTERVAL 1 YEAR');
 
-        $sql = $this->grammar->compileCreate('events', $bp);
+        $sql = $this->grammar->compileCreate('events', $table);
 
         $this->assertStringContainsString('TTL ts + INTERVAL 1 YEAR', $sql);
     }
 
     public function test_compile_create_contains_table_comment(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->engine(new MergeTree())->orderBy('id')->comment('User events');
+        $table = $this->blueprint();;
+        $table->uint64('id');
+        $table->engine(new MergeTree())->orderBy('id')->comment('User events');
 
-        $sql = $this->grammar->compileCreate('events', $bp);
+        $sql = $this->grammar->compileCreate('events', $table);
 
         $this->assertStringContainsString("COMMENT 'User events'", $sql);
     }
 
     public function test_compile_create_with_replacing_merge_tree_engine(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->engine(new ReplacingMergeTree('version'))->orderBy('id');
+        $table = $this->blueprint();;
+        $table->uint64('id');
+        $table->engine(new ReplacingMergeTree('version'))->orderBy('id');
 
-        $sql = $this->grammar->compileCreate('events', $bp);
+        $sql = $this->grammar->compileCreate('events', $table);
 
         $this->assertStringContainsString('ENGINE = ReplacingMergeTree(version)', $sql);
     }
 
-    // ─── compileCreateIfNotExists() ───────────────────────────────────────────
+    // [compileCreateIfNotExists()]
 
     public function test_compile_create_if_not_exists(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id');
-        $bp->engine(new MergeTree())->orderBy('id');
+        $table = $this->blueprint();;
+        $table->uint64('id');
+        $table->engine(new MergeTree())->orderBy('id');
 
-        $sql = $this->grammar->compileCreateIfNotExists('events', $bp);
+        $sql = $this->grammar->compileCreateIfNotExists('events', $table);
 
         $this->assertStringContainsString('CREATE TABLE IF NOT EXISTS `events`', $sql);
     }
 
-    // ─── compileDrop() ────────────────────────────────────────────────────────
+    // [compileDrop()]
 
     public function test_compile_drop(): void
     {
         $this->assertSame('DROP TABLE `events`', $this->grammar->compileDrop('events'));
     }
 
-    // ─── compileDropIfExists() ────────────────────────────────────────────────
+    // [compileDropIfExists()]
 
     public function test_compile_drop_if_exists(): void
     {
         $this->assertSame('DROP TABLE IF EXISTS `events`', $this->grammar->compileDropIfExists('events'));
     }
 
-    // ─── compileRename() ──────────────────────────────────────────────────────
+    // [compileRename()]
 
     public function test_compile_rename(): void
     {
@@ -183,19 +184,19 @@ class GrammarTest extends TestCase
         );
     }
 
-    // ─── compileAlter() ───────────────────────────────────────────────────────
+    // [compileAlter()]
 
     public function test_compile_alter_returns_empty_array_for_empty_blueprint(): void
     {
-        $this->assertSame([], $this->grammar->compileAlter('users', $this->bp()));
+        $this->assertSame([], $this->grammar->compileAlter('users', $this->blueprint()));
     }
 
     public function test_compile_alter_add_column(): void
     {
-        $bp = $this->bp();
-        $bp->string('email');
+        $table = $this->blueprint();;
+        $table->string('email');
 
-        $statements = $this->grammar->compileAlter('users', $bp);
+        $statements = $this->grammar->compileAlter('users', $table);
 
         $this->assertCount(1, $statements);
         $this->assertStringContainsString('ALTER TABLE `users`', $statements[0]);
@@ -204,67 +205,136 @@ class GrammarTest extends TestCase
 
     public function test_compile_alter_modify_column(): void
     {
-        $bp = $this->bp();
-        $bp->uint64('id')->change();
+        $table = $this->blueprint();;
+        $table->uint64('id')->change();
 
-        $statements = $this->grammar->compileAlter('users', $bp);
+        $statements = $this->grammar->compileAlter('users', $table);
 
         $this->assertStringContainsString('MODIFY COLUMN `id` UInt64', $statements[0]);
     }
 
     public function test_compile_alter_add_column_after(): void
     {
-        $bp = $this->bp();
-        $bp->string('email')->after('name');
+        $table = $this->blueprint();;
+        $table->string('email')->after('name');
 
-        $statements = $this->grammar->compileAlter('users', $bp);
+        $statements = $this->grammar->compileAlter('users', $table);
 
         $this->assertStringContainsString('ADD COLUMN `email` String AFTER `name`', $statements[0]);
     }
 
     public function test_compile_alter_modify_column_after(): void
     {
-        $bp = $this->bp();
-        $bp->string('email')->change()->after('name');
+        $table = $this->blueprint();;
+        $table->string('email')->change()->after('name');
 
-        $statements = $this->grammar->compileAlter('users', $bp);
+        $statements = $this->grammar->compileAlter('users', $table);
 
         $this->assertStringContainsString('MODIFY COLUMN `email` String AFTER `name`', $statements[0]);
     }
 
     public function test_compile_alter_drop_column(): void
     {
-        $bp = $this->bp();
-        $bp->dropColumn('legacy_field');
+        $table = $this->blueprint();;
+        $table->dropColumn('legacy_field');
 
-        $statements = $this->grammar->compileAlter('users', $bp);
+        $statements = $this->grammar->compileAlter('users', $table);
 
         $this->assertStringContainsString('DROP COLUMN `legacy_field`', $statements[0]);
     }
 
     public function test_compile_alter_rename_column(): void
     {
-        $bp = $this->bp();
-        $bp->renameColumn('old_name', 'new_name');
+        $table = $this->blueprint();;
+        $table->renameColumn('old_name', 'new_name');
 
-        $statements = $this->grammar->compileAlter('users', $bp);
+        $statements = $this->grammar->compileAlter('users', $table);
 
         $this->assertStringContainsString('RENAME COLUMN `old_name` TO `new_name`', $statements[0]);
     }
 
     public function test_compile_alter_batches_multiple_actions_into_one_statement(): void
     {
-        $bp = $this->bp();
-        $bp->string('email');
-        $bp->dropColumn('phone');
-        $bp->renameColumn('ts', 'created_at');
+        $table = $this->blueprint();;
+        $table->string('email');
+        $table->dropColumn('phone');
+        $table->renameColumn('ts', 'created_at');
 
-        $statements = $this->grammar->compileAlter('users', $bp);
+        $statements = $this->grammar->compileAlter('users', $table);
 
-        // All actions in a single ALTER TABLE statement
         $this->assertCount(1, $statements);
         $this->assertStringContainsString('ADD COLUMN `email` String', $statements[0]);
         $this->assertStringContainsString('DROP COLUMN `phone`', $statements[0]);
         $this->assertStringContainsString('RENAME COLUMN `ts` TO `created_at`', $statements[0]);
+    }
+
+    // [compileMaterializedView()]
+
+    public function test_compile_materialized_view(): void
+    {
+        $sql = $this->grammar->compileMaterializedView(
+            'mv_daily',
+            'daily_stats',
+            'SELECT toDate(ts) AS day, count() AS n FROM events GROUP BY day',
+        );
+
+        $this->assertStringStartsWith('CREATE MATERIALIZED VIEW `mv_daily`', $sql);
+        $this->assertStringContainsString('TO `daily_stats`', $sql);
+        $this->assertStringContainsString('AS SELECT toDate(ts)', $sql);
+        $this->assertStringNotContainsString('IF NOT EXISTS', $sql);
+        $this->assertStringNotContainsString('POPULATE', $sql);
+    }
+
+    public function test_compile_materialized_view_if_not_exists(): void
+    {
+        $sql = $this->grammar->compileMaterializedView(
+            'mv_daily',
+            'daily_stats',
+            'SELECT 1',
+            ifNotExists: true,
+        );
+
+        $this->assertStringContainsString('IF NOT EXISTS', $sql);
+    }
+
+    public function test_compile_materialized_view_with_populate(): void
+    {
+        $sql = $this->grammar->compileMaterializedView(
+            'mv_daily',
+            'daily_stats',
+            'SELECT 1',
+            populate: true,
+        );
+
+        $this->assertStringContainsString('POPULATE', $sql);
+        $this->assertStringContainsString('AS SELECT 1', $sql);
+    }
+
+    public function test_compile_materialized_view_if_not_exists_and_populate(): void
+    {
+        $sql = $this->grammar->compileMaterializedView(
+            'mv',
+            'target',
+            'SELECT 1',
+            ifNotExists: true,
+            populate: true,
+        );
+
+        $this->assertSame('CREATE MATERIALIZED VIEW IF NOT EXISTS `mv` TO `target` POPULATE AS SELECT 1', $sql);
+    }
+
+    // [compileDropView()]
+
+    public function test_compile_drop_view(): void
+    {
+        $this->assertSame('DROP VIEW `mv_daily`', $this->grammar->compileDropView('mv_daily'));
+    }
+
+    public function test_compile_drop_view_if_exists(): void
+    {
+        $this->assertSame(
+            'DROP VIEW IF EXISTS `mv_daily`',
+            $this->grammar->compileDropViewIfExists('mv_daily')
+        );
     }
 }

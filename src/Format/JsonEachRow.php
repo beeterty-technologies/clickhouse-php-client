@@ -4,6 +4,13 @@ namespace Beeterty\ClickHouse\Format;
 
 use Beeterty\ClickHouse\Format\Contracts\Format;
 
+/**
+ * ClickHouse JSONEachRow format.
+ *
+ * Each line is a separate JSON object representing a row. The keys of the
+ * objects are the column names, and the values are the corresponding column
+ * values for that row.
+ */
 final class JsonEachRow implements Format
 {
     /**

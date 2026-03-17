@@ -4,6 +4,13 @@ namespace Beeterty\ClickHouse\Format;
 
 use Beeterty\ClickHouse\Format\Contracts\Format;
 
+/**
+ * ClickHouse TabSeparatedWithNames format.
+ *
+ * The first row is a header line with column names. Each subsequent row is a
+ * tab-separated record. Values containing tabs, double-quotes, or newlines
+ * are RFC 4180-quoted.
+ */
 final class TabSeparated implements Format
 {
     /**
@@ -31,7 +38,7 @@ final class TabSeparated implements Format
         }
 
         $headers = array_keys($rows[0]);
-        $lines   = [implode("\t", $headers)];
+        $lines = [implode("\t", $headers)];
 
         foreach ($rows as $row) {
             $lines[] = implode("\t", array_values($row));
