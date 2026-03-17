@@ -51,7 +51,7 @@ final class Csv implements Format
 
         $lines = explode("\n", trim($raw));
 
-        $headers = array_map('strval', str_getcsv((string) array_shift($lines)));
+        $headers = array_map('strval', str_getcsv((string) array_shift($lines), ',', '"', ''));
         $rows = [];
 
         foreach ($lines as $line) {
@@ -59,7 +59,7 @@ final class Csv implements Format
                 continue;
             }
 
-            $values = array_map('strval', str_getcsv($line));
+            $values = array_map('strval', str_getcsv($line, ',', '"', ''));
             $rows[] = array_combine($headers, $values);
         }
 

@@ -4,6 +4,7 @@ namespace Beeterty\ClickHouse;
 
 use Beeterty\ClickHouse\Exception\{ConnectionException, QueryException};
 use Beeterty\ClickHouse\Format\Contracts\Format;
+use Beeterty\ClickHouse\Format\Csv;
 use Beeterty\ClickHouse\Format\JsonEachRow;
 use Beeterty\ClickHouse\Schema\Schema;
 use CurlHandle;
@@ -195,6 +196,217 @@ class Client
         $escaped = str_replace(["\\", "'"], ["\\\\", "\\'"], $queryId);
 
         $this->execute("KILL QUERY WHERE query_id = '{$escaped}'");
+
+        return true;
+    }
+
+    /**
+     * Execute multiple SELECT queries in parallel using curl_multi.
+     *
+     * Each query runs simultaneously over its own cURL handle. Pass an
+     * associative array to preserve meaningful keys in the result:
+     *
+     *   $results = $client->parallel([
+     *       'daily'   => $client->table('events')->where('period', 'day')->toSql(),
+     *       'weekly'  => $client->table('events')->where('period', 'week')->toSql(),
+     *   ]);
+     *
+     *   $results['daily']->rows();   // Statement for the first query
+     *   $results['weekly']->rows();  // Statement for the second query
+     *
+     * @param array<string|int, string|QueryBuilder> $queries
+     * @param Format|null $format Defaults to JsonEachRow
+     * @return array<string|int, Statement>
+     * @throws ConnectionException
+     * @throws QueryException
+     */
+    public function parallel(array $queries, ?Format $format = null): array
+    {
+        $format ??= new JsonEachRow();
+
+        $handles = [];
+
+        $responseHeaders = [];
+
+        $multi = curl_multi_init();
+
+        foreach ($queries as $key => $query) {
+            $sql = $query instanceof QueryBuilder ? $query->toSql() : $query;
+            $sql .= ' FORMAT ' . $format->name();
+
+            $url = $this->config->dataSource() . '/?' . http_build_query([
+                'database'          => $this->config->database,
+                'query'             => $sql,
+                'wait_end_of_query' => 1,
+            ]);
+
+            $responseHeaders[$key] = [];
+
+            $ch = curl_init();
+
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $url,
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => '',
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => $this->config->timeout,
+                CURLOPT_CONNECTTIMEOUT => $this->config->connectTimeout,
+                CURLOPT_HTTPHEADER => $this->authHeaders(),
+                CURLOPT_ENCODING => '',
+                CURLOPT_HEADERFUNCTION => function ($ch, $header) use ($key, &$responseHeaders): int {
+                    $parts = explode(':', $header, 2);
+
+                    if (\count($parts) === 2) {
+                        $responseHeaders[$key][trim($parts[0])] = trim($parts[1]);
+                    }
+
+                    return \strlen($header);
+                },
+            ]);
+
+            $handles[$key] = $ch;
+
+            curl_multi_add_handle($multi, $ch);
+        }
+
+        do {
+            $status = curl_multi_exec($multi, $still_running);
+
+            if ($still_running) {
+                curl_multi_select($multi);
+            }
+        } while ($still_running && $status === CURLM_OK);
+
+        $results = [];
+
+        foreach ($handles as $key => $ch) {
+            $body     = curl_multi_getcontent($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $error    = curl_error($ch);
+
+            curl_multi_remove_handle($multi, $ch);
+
+            if ($body === null || !empty($error)) {
+                curl_multi_close($multi);
+
+                throw new ConnectionException("ClickHouse parallel query [{$key}] failed: {$error}");
+            }
+
+            if ($httpCode !== 200) {
+                curl_multi_close($multi);
+
+                $query = $queries[$key];
+                $sql   = $query instanceof QueryBuilder ? $query->toSql() : $query;
+
+                throw new QueryException(
+                    "ClickHouse parallel query [{$key}] failed [{$httpCode}]: {$body}",
+                    $sql
+                );
+            }
+
+            $results[$key] = new Statement($body, $format, $responseHeaders[$key]);
+        }
+
+        curl_multi_close($multi);
+
+        return $results;
+    }
+
+    /**
+     * Stream a local file directly into ClickHouse without loading it into memory.
+     *
+     * The file is read in 64 kB chunks via CURLOPT_READFUNCTION and sent as a
+     * chunked-transfer POST, so even multi-gigabyte files stay memory-efficient.
+     *
+     * Format defaults to CSV (CSVWithNames). Any Format whose encode/decode
+     * contract matches the file's on-disk structure may be passed instead.
+     *
+     *   $client->insertFile('events', '/data/events.csv');
+     *   $client->insertFile('logs',   '/data/logs.tsv', new TabSeparated());
+     *
+     * @param string      $table  Target table name
+     * @param string      $path   Absolute or relative path to the file
+     * @param Format|null $format Defaults to Csv (CSVWithNames)
+     * @return bool
+     * @throws \RuntimeException     If the file cannot be opened
+     * @throws ConnectionException
+     * @throws QueryException
+     */
+    public function insertFile(string $table, string $path, ?Format $format = null): bool
+    {
+        $format ??= new Csv();
+
+        if (!is_file($path) || !is_readable($path)) {
+            throw new \RuntimeException("Cannot open file for reading: {$path}");
+        }
+
+        $fh = fopen($path, 'rb');
+
+        if ($fh === false) {
+            throw new \RuntimeException("Cannot open file for reading: {$path}");
+        }
+
+        $sql = "INSERT INTO `{$table}` FORMAT " . $format->name();
+
+        $url = $this->config->dataSource() . '/?' . http_build_query([
+            'database'          => $this->config->database,
+            'query'             => $sql,
+            'wait_end_of_query' => 1,
+        ]);
+
+        $responseHeaders = [];
+
+        $headers   = $this->authHeaders();
+        $headers[] = 'Transfer-Encoding: chunked';
+        $headers[] = 'Expect:';
+
+        $ch = curl_init();
+
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => $this->config->timeout,
+            CURLOPT_CONNECTTIMEOUT => $this->config->connectTimeout,
+            CURLOPT_HTTPHEADER     => $headers,
+            CURLOPT_ENCODING       => '',
+            CURLOPT_READFUNCTION   => function ($ch, $infile, int $length) use ($fh): string {
+                if ($length < 1) {
+                    return '';
+                }
+
+                $chunk = fread($fh, $length);
+
+                return $chunk === false ? '' : $chunk;
+            },
+            CURLOPT_HEADERFUNCTION => function ($ch, $header) use (&$responseHeaders): int {
+                $parts = explode(':', $header, 2);
+
+                if (\count($parts) === 2) {
+                    $responseHeaders[trim($parts[0])] = trim($parts[1]);
+                }
+                return \strlen($header);
+            },
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error    = curl_error($ch);
+
+        fclose($fh);
+
+        if ($response === false || !empty($error)) {
+            throw new ConnectionException("ClickHouse file insert failed: {$error}");
+        }
+
+        \assert(\is_string($response));
+
+        if ($httpCode !== 200) {
+            throw new QueryException(
+                "ClickHouse file insert failed [{$httpCode}]: {$response}",
+                $sql
+            );
+        }
 
         return true;
     }
