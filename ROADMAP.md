@@ -1,6 +1,8 @@
 # Roadmap
 
-This file tracks planned improvements to the client. Items are checked off as they ship. Feel free to open an issue or PR for anything listed here.
+This file tracks planned improvements to the client. Items are checked off as they ship.
+
+Want to work on something? Open an issue first so we can align on the approach before you invest time in a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
 
 ---
 
