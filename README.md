@@ -1,6 +1,6 @@
 # ClickHouse PHP Client
 
-[![CI](https://github.com/beeterty/clickhouse-php-client/actions/workflows/ci.yml/badge.svg)](https://github.com/beeterty/clickhouse-php-client/actions/workflows/ci.yml)
+[![CI](https://github.com/beeterty-technologies/clickhouse-php-client/actions/workflows/ci.yml/badge.svg)](https://github.com/beeterty-technologies/clickhouse-php-client/actions/workflows/ci.yml)
 [![PHP](https://img.shields.io/badge/PHP-8.2%2B-blue)](https://www.php.net)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
