@@ -1,4 +1,4 @@
-# beeterty/clickhouse-php-client
+# ClickHouse PHP Client
 
 [![CI](https://github.com/beeterty/clickhouse-php-client/actions/workflows/ci.yml/badge.svg)](https://github.com/beeterty/clickhouse-php-client/actions/workflows/ci.yml)
 [![PHP](https://img.shields.io/badge/PHP-8.2%2B-blue)](https://www.php.net)
@@ -19,12 +19,12 @@ A lightweight, zero-dependency ClickHouse HTTP client for PHP 8.2+.
 
 ## Requirements
 
-| Requirement | Version |
-|---|---|
-| PHP | ≥ 8.2 |
-| ext-curl | any |
-| ext-json | any |
-| ClickHouse | any recent version |
+| Requirement | Version            |
+| ----------- | ------------------ |
+| PHP         | ≥ 8.2              |
+| ext-curl    | any                |
+| ext-json    | any                |
+| ClickHouse  | any recent version |
 
 ---
 
@@ -261,27 +261,27 @@ $client->schema()->createIfNotExists('events', function (Blueprint $table): void
 
 ### Column types
 
-| Method | ClickHouse type |
-|---|---|
-| `uint8 / uint16 / uint32 / uint64 / uint128 / uint256` | `UInt8` … `UInt256` |
-| `int8 / int16 / int32 / int64 / int128 / int256` | `Int8` … `Int256` |
-| `float32 / float64` | `Float32 / Float64` |
-| `decimal($name, $precision, $scale)` | `Decimal(P, S)` |
-| `string` | `String` |
-| `fixedString($name, $length)` | `FixedString(N)` |
-| `boolean` | `Bool` |
-| `uuid` | `UUID` |
-| `date / date32` | `Date / Date32` |
-| `dateTime($name, $tz?)` | `DateTime / DateTime('tz')` |
-| `dateTime64($name, $precision?, $tz?)` | `DateTime64(P) / DateTime64(P, 'tz')` |
-| `ipv4 / ipv6` | `IPv4 / IPv6` |
-| `json` | `JSON` |
-| `enum8($name, $values)` | `Enum8('a'=1, …)` |
-| `enum16($name, $values)` | `Enum16('a'=1, …)` |
-| `array($name, $innerType)` | `Array(T)` |
-| `map($name, $keyType, $valueType)` | `Map(K, V)` |
-| `tuple($name, ...$types)` | `Tuple(T1, T2, …)` |
-| `rawColumn($name, $definition)` | raw type string |
+| Method                                                 | ClickHouse type                       |
+| ------------------------------------------------------ | ------------------------------------- |
+| `uint8 / uint16 / uint32 / uint64 / uint128 / uint256` | `UInt8` … `UInt256`                   |
+| `int8 / int16 / int32 / int64 / int128 / int256`       | `Int8` … `Int256`                     |
+| `float32 / float64`                                    | `Float32 / Float64`                   |
+| `decimal($name, $precision, $scale)`                   | `Decimal(P, S)`                       |
+| `string`                                               | `String`                              |
+| `fixedString($name, $length)`                          | `FixedString(N)`                      |
+| `boolean`                                              | `Bool`                                |
+| `uuid`                                                 | `UUID`                                |
+| `date / date32`                                        | `Date / Date32`                       |
+| `dateTime($name, $tz?)`                                | `DateTime / DateTime('tz')`           |
+| `dateTime64($name, $precision?, $tz?)`                 | `DateTime64(P) / DateTime64(P, 'tz')` |
+| `ipv4 / ipv6`                                          | `IPv4 / IPv6`                         |
+| `json`                                                 | `JSON`                                |
+| `enum8($name, $values)`                                | `Enum8('a'=1, …)`                     |
+| `enum16($name, $values)`                               | `Enum16('a'=1, …)`                    |
+| `array($name, $innerType)`                             | `Array(T)`                            |
+| `map($name, $keyType, $valueType)`                     | `Map(K, V)`                           |
+| `tuple($name, ...$types)`                              | `Tuple(T1, T2, …)`                    |
+| `rawColumn($name, $definition)`                        | raw type string                       |
 
 Column modifiers (chainable on the returned `ColumnDefinition`):
 
