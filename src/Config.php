@@ -2,7 +2,7 @@
 
 namespace Beeterty\ClickHouse;
 
-class Config
+final class Config
 {
     /**
      * Create a new ClickHouse connection configuration.
