@@ -2,6 +2,8 @@
 
 Thank you for taking the time to contribute. This document covers everything you need to get a working dev environment, run the tests, and open a pull request.
 
+> **Not sure what to work on?** Check [ROADMAP.md](ROADMAP.md) — every unchecked item is a candidate. Open an issue before starting significant work so we can align on the approach.
+
 ---
 
 ## Prerequisites
