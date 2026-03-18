@@ -3,14 +3,14 @@
 namespace Beeterty\ClickHouse\Tests\Unit;
 
 use Beeterty\ClickHouse\Client;
-use Beeterty\ClickHouse\QueryBuilder;
+use Beeterty\ClickHouse\Query\Builder;
 use PHPUnit\Framework\TestCase;
 
 class QueryBuilderTest extends TestCase
 {
-    private function builder(): QueryBuilder
+    private function builder(): Builder
     {
-        return new QueryBuilder($this->createMock(Client::class));
+        return new Builder($this->createMock(Client::class));
     }
 
     // ─── SELECT ───────────────────────────────────────────────────────────────
