@@ -9,8 +9,8 @@ Want to work on something? Open an issue first so we can align on the approach b
 ## Query builder
 
 - [ ] `JOIN` — `join()`, `leftJoin()`, `innerJoin()`, `crossJoin()` with support for ClickHouse join strictness (`ANY`, `ALL`, `ASOF`)
-- [ ] `FINAL` modifier — `->final()` appended to the FROM clause, used with `ReplacingMergeTree` / `CollapsingMergeTree` to force deduplication at read time
-- [ ] `SAMPLE` clause — `->sample(0.1)` for random fractional row sampling on MergeTree tables
+- [x] `FINAL` modifier — `->final()` appended to the FROM clause, used with `ReplacingMergeTree` / `CollapsingMergeTree` to force deduplication at read time
+- [x] `SAMPLE` clause — `->sample(0.1)` for random fractional row sampling on MergeTree tables
 - [ ] `ARRAY JOIN` — ClickHouse-specific clause that flattens array columns into rows
 - [ ] `WITH` / CTEs — `->with('cte_name', $subquery)` for common table expressions
 - [ ] `UNION ALL` / `UNION DISTINCT` — combine two `QueryBuilder` instances
@@ -97,6 +97,8 @@ Want to work on something? Open an issue first so we can align on the approach b
 - [x] Retry logic — `retries` + `retryDelay` on `Config`
 - [x] Gzip compression — `compression` on `Config`
 - [x] Named placeholder bindings — `:name` in raw SQL
+- [x] `FINAL` modifier on query builder — `->final()` for `ReplacingMergeTree` / `CollapsingMergeTree` deduplication at read time
+- [x] `SAMPLE` clause on query builder — `->sample(0.1)` for fractional row sampling on MergeTree tables
 - [x] Immutable `Config` mutators — `withDatabase()`, `withCredentials()`, `withHttps()`, `withRetries()`, `withCompression()`, etc.
 - [x] PHPStan level 8
 - [x] GitHub Actions CI (PHP 8.2 + 8.3) with release gate
