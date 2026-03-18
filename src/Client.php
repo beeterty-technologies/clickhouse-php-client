@@ -6,6 +6,8 @@ use Beeterty\ClickHouse\Exception\{ConnectionException, QueryException};
 use Beeterty\ClickHouse\Format\Contracts\Format;
 use Beeterty\ClickHouse\Format\Csv;
 use Beeterty\ClickHouse\Format\JsonEachRow;
+use Beeterty\ClickHouse\Query\Builder;
+use Beeterty\ClickHouse\Query\Statement;
 use Beeterty\ClickHouse\Schema\Schema;
 use CurlHandle;
 
@@ -40,14 +42,14 @@ class Client
     }
 
     /**
-     * Return a fluent QueryBuilder scoped to the given table.
+     * Return a fluent query Builder scoped to the given table.
      *
      * @param string $table
-     * @return QueryBuilder
+     * @return Builder
      */
-    public function table(string $table): QueryBuilder
+    public function table(string $table): Builder
     {
-        return (new QueryBuilder($this))->table($table);
+        return (new Builder($this))->table($table);
     }
 
     /**
@@ -214,7 +216,7 @@ class Client
      *   $results['daily']->rows();   // Statement for the first query
      *   $results['weekly']->rows();  // Statement for the second query
      *
-     * @param array<string|int, string|QueryBuilder> $queries
+     * @param array<string|int, string|Builder> $queries
      * @param Format|null $format Defaults to JsonEachRow
      * @return array<string|int, Statement>
      * @throws ConnectionException
@@ -231,7 +233,7 @@ class Client
         $multi = curl_multi_init();
 
         foreach ($queries as $key => $query) {
-            $sql = $query instanceof QueryBuilder ? $query->toSql() : $query;
+            $sql = $query instanceof Builder ? $query->toSql() : $query;
             $sql .= ' FORMAT ' . $format->name();
 
             $url = $this->config->dataSource() . '/?' . http_build_query([
@@ -296,7 +298,7 @@ class Client
                 curl_multi_close($multi);
 
                 $query = $queries[$key];
-                $sql   = $query instanceof QueryBuilder ? $query->toSql() : $query;
+                $sql   = $query instanceof Builder ? $query->toSql() : $query;
 
                 throw new QueryException(
                     "ClickHouse parallel query [{$key}] failed [{$httpCode}]: {$body}",

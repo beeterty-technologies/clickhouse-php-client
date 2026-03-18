@@ -2,9 +2,9 @@
 
 namespace Beeterty\ClickHouse\Tests\Integration;
 
+use Beeterty\ClickHouse\Query\Statement;
 use Beeterty\ClickHouse\Schema\Blueprint;
 use Beeterty\ClickHouse\Schema\Engine\MergeTree;
-use Beeterty\ClickHouse\Statement;
 
 class ParallelIntegrationTest extends IntegrationTestCase
 {

@@ -3,7 +3,7 @@
 namespace Beeterty\ClickHouse\Tests\Unit;
 
 use Beeterty\ClickHouse\Format\JsonEachRow;
-use Beeterty\ClickHouse\Statement;
+use Beeterty\ClickHouse\Query\Statement;
 use PHPUnit\Framework\TestCase;
 
 class StatementTest extends TestCase
