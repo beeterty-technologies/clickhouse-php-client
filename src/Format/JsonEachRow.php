@@ -7,9 +7,12 @@ use Beeterty\ClickHouse\Format\Contracts\Format;
 /**
  * ClickHouse JSONEachRow format.
  *
- * Each line is a separate JSON object representing a row. The keys of the
- * objects are the column names, and the values are the corresponding column
- * values for that row.
+ * Each newline-delimited line is a separate JSON object representing one row.
+ * Object keys are column names; values are the corresponding column values.
+ * This is the default format used by the client for SELECT queries and inserts
+ * because it is self-describing, streamable, and trivially parsed.
+ *
+ * @see https://clickhouse.com/docs/en/interfaces/formats#jsoneachrow
  */
 final class JsonEachRow implements Format
 {

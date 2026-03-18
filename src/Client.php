@@ -4,10 +4,8 @@ namespace Beeterty\ClickHouse;
 
 use Beeterty\ClickHouse\Exception\{ConnectionException, QueryException};
 use Beeterty\ClickHouse\Format\Contracts\Format;
-use Beeterty\ClickHouse\Format\Csv;
-use Beeterty\ClickHouse\Format\JsonEachRow;
-use Beeterty\ClickHouse\Query\Builder;
-use Beeterty\ClickHouse\Query\Statement;
+use Beeterty\ClickHouse\Format\{Csv, JsonEachRow};
+use Beeterty\ClickHouse\Query\{Builder, Statement};
 use Beeterty\ClickHouse\Schema\Schema;
 use CurlHandle;
 
@@ -71,9 +69,19 @@ class Client
     /**
      * Execute a SELECT query and return a Statement wrapping the result rows.
      *
-     * @param string      $sql
-     * @param array       $bindings Named placeholders: [':name' => 'Alice', ':age' => 30]
-     * @param Format|null $format   Defaults to JsonEachRow
+     * The SQL is sent via POST with wait_end_of_query=1 so that HTTP 200 genuinely
+     * means success. Named placeholders in the form :name are substituted client-side
+     * before the query is dispatched.
+     *
+     * Example:
+     *   $stmt = $client->query('SELECT * FROM events WHERE status = :status', ['status' => 'active']);
+     *   foreach ($stmt as $row) { ... }
+     *
+     * @see https://clickhouse.com/docs/en/interfaces/http
+     *
+     * @param string      $sql      SQL query string, optionally with :name placeholders.
+     * @param array       $bindings Named placeholder values keyed by placeholder name.
+     * @param Format|null $format   Response format — defaults to JsonEachRow.
      * @return Statement
      * @throws ConnectionException
      * @throws QueryException
@@ -89,11 +97,23 @@ class Client
     }
 
     /**
-     * Insert rows into a table.
+     * Insert an array of rows into a ClickHouse table.
      *
-     * @param string      $table
-     * @param array       $rows   Array of associative arrays
-     * @param Format|null $format Defaults to JsonEachRow
+     * Rows are encoded using the given format (default: JsonEachRow) and sent as
+     * the POST body. Each row must be an associative array whose keys match the
+     * target table's column names.
+     *
+     * Example:
+     *   $client->insert('events', [
+     *       ['user_id' => 1, 'event' => 'click', 'ts' => '2024-01-01 00:00:00'],
+     *       ['user_id' => 2, 'event' => 'view',  'ts' => '2024-01-01 00:00:01'],
+     *   ]);
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/insert-into
+     *
+     * @param string      $table  Target table name.
+     * @param array       $rows   Array of associative arrays — one per row.
+     * @param Format|null $format Encoding format — defaults to JsonEachRow.
      * @return bool
      * @throws ConnectionException
      * @throws QueryException
@@ -110,10 +130,19 @@ class Client
     }
 
     /**
-     * Execute a DDL or DML statement (CREATE, ALTER, DROP, etc.).
+     * Execute a DDL or DML statement (CREATE, ALTER, DROP, OPTIMIZE, etc.).
      *
-     * @param string $sql
-     * @param array  $bindings
+     * Unlike query(), no FORMAT clause is appended and no response body is parsed.
+     * Returns true on success; throws on any server or connection error.
+     *
+     * Example:
+     *   $client->execute('OPTIMIZE TABLE events FINAL');
+     *   $client->execute('ALTER TABLE events DELETE WHERE user_id = :id', ['id' => 42]);
+     *
+     * @see https://clickhouse.com/docs/en/interfaces/http
+     *
+     * @param string $sql      DDL or DML statement, optionally with :name placeholders.
+     * @param array  $bindings Named placeholder values.
      * @return bool
      * @throws ConnectionException
      * @throws QueryException
@@ -139,9 +168,11 @@ class Client
      * ALTER, INSERT SELECT). SELECT queries may be cancelled server-side on
      * disconnect depending on ClickHouse's cancel_http_readonly_queries_on_client_close setting.
      *
-     * @param string $sql
-     * @param array  $bindings
-     * @return string The generated query_id
+     * @see https://clickhouse.com/docs/en/interfaces/http#query_id
+     *
+     * @param string $sql      DDL or DML statement, optionally with :name placeholders.
+     * @param array  $bindings Named placeholder values.
+     * @return string The generated query_id — pass to isRunning() or kill() to track the query.
      * @throws ConnectionException
      */
     public function executeAsync(string $sql, array $bindings = []): string
@@ -176,7 +207,12 @@ class Client
     /**
      * Return true if a query with the given query_id is still executing.
      *
-     * @param string $queryId
+     * Queries system.processes — the live table of currently running queries.
+     * Returns false as soon as the query finishes or is killed.
+     *
+     * @see https://clickhouse.com/docs/en/operations/system-tables/processes
+     *
+     * @param string $queryId The query_id returned by executeAsync().
      * @return bool
      */
     public function isRunning(string $queryId): bool
@@ -190,7 +226,13 @@ class Client
     /**
      * Kill a running query by its query_id.
      *
-     * @param string $queryId
+     * Sends a KILL QUERY statement targeting the given query_id. Returns true
+     * whether or not a matching query was found — check isRunning() first if you
+     * need to confirm the query was actually alive.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/kill#kill-query
+     *
+     * @param string $queryId The query_id to kill.
      * @return bool
      */
     public function kill(string $queryId): bool
@@ -216,9 +258,11 @@ class Client
      *   $results['daily']->rows();   // Statement for the first query
      *   $results['weekly']->rows();  // Statement for the second query
      *
-     * @param array<string|int, string|Builder> $queries
-     * @param Format|null $format Defaults to JsonEachRow
-     * @return array<string|int, Statement>
+     * @see https://clickhouse.com/docs/en/interfaces/http
+     *
+     * @param array<string|int, string|Builder> $queries Keyed map of SQL strings or Builder instances.
+     * @param Format|null $format Response format — defaults to JsonEachRow.
+     * @return array<string|int, Statement> Results keyed by the same keys as the input array.
      * @throws ConnectionException
      * @throws QueryException
      */
@@ -326,11 +370,13 @@ class Client
      *   $client->insertFile('events', '/data/events.csv');
      *   $client->insertFile('logs',   '/data/logs.tsv', new TabSeparated());
      *
-     * @param string      $table  Target table name
-     * @param string      $path   Absolute or relative path to the file
-     * @param Format|null $format Defaults to Csv (CSVWithNames)
+     * @see https://clickhouse.com/docs/en/interfaces/http#inserting-data
+     *
+     * @param string      $table  Target table name.
+     * @param string      $path   Absolute or relative path to the file to stream.
+     * @param Format|null $format File format — defaults to Csv (CSVWithNames).
      * @return bool
-     * @throws \RuntimeException     If the file cannot be opened
+     * @throws \RuntimeException If the file does not exist or cannot be read.
      * @throws ConnectionException
      * @throws QueryException
      */

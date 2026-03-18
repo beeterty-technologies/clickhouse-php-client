@@ -7,16 +7,18 @@ use Beeterty\ClickHouse\Format\Contracts\Format;
 /**
  * ClickHouse TabSeparatedWithNames format.
  *
- * The first row is a header line with column names. Each subsequent row is a
- * tab-separated record. Values containing tabs, double-quotes, or newlines
- * are RFC 4180-quoted.
+ * The first row is a header line containing column names. Each subsequent row
+ * is a tab-separated record. Column names and values are separated by a single
+ * tab character (`\t`); rows are separated by a newline (`\n`).
+ *
+ * @see https://clickhouse.com/docs/en/interfaces/formats#tabseparatedwithnames
  */
 final class TabSeparated implements Format
 {
-    /**
-     * The headers from the TabSeparated format.
+    /** 
+     * Column names parsed from the header row during {@see decode()}.
      * 
-     * @var array
+     * @var string[]
      */
     private array $headers = [];
 
@@ -76,9 +78,12 @@ final class TabSeparated implements Format
     }
 
     /**
-     * Get the headers from the TabSeparated format.
-     * 
-     * @return array
+     * Return the column names parsed from the most recent {@see decode()} call.
+     *
+     * Useful when decoding a raw ClickHouse response and you need to inspect
+     * the column order independently of the row data.
+     *
+     * @return string[]
      */
     public function headers(): array
     {

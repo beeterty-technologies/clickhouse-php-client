@@ -176,6 +176,9 @@ final class Config
 
     /**
      * Return a new Config with the given cURL connect timeout (seconds).
+     *
+     * @param int $connectTimeout cURL connect timeout in seconds.
+     * @return static
      */
     public function withConnectTimeout(int $connectTimeout): static
     {
@@ -197,8 +200,9 @@ final class Config
     /**
      * Return a new Config with retry settings.
      *
-     * @param int $retries   Number of extra attempts after the first failure
-     * @param int $delayMs   Milliseconds to wait between attempts
+     * @param int $retries  Number of extra attempts after the first failure.
+     * @param int $delayMs  Milliseconds to wait between attempts.
+     * @return static
      */
     public function withRetries(int $retries, int $delayMs = 100): static
     {

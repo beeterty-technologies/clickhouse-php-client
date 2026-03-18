@@ -2,14 +2,25 @@
 
 namespace Beeterty\ClickHouse\Schema;
 
+/**
+ * Compiles Blueprint definitions into raw ClickHouse DDL SQL strings.
+ *
+ * All statements use backtick-quoted identifiers for compatibility with
+ * reserved keywords and mixed-case table/column names.
+ *
+ * @see https://clickhouse.com/docs/en/sql-reference/statements/create/table
+ * @see https://clickhouse.com/docs/en/sql-reference/statements/alter/column
+ */
 class Grammar
 {
     /**
      * Compile a CREATE TABLE statement.
-     * 
-     * @param string $table The name of the table to create.
-     * @param Blueprint $blueprint The table blueprint containing columns and options.
-     * @return string The compiled SQL statement.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/create/table
+     *
+     * @param string    $table     Table name.
+     * @param Blueprint $blueprint Blueprint describing columns and table options.
+     * @return string
      */
     public function compileCreate(string $table, Blueprint $blueprint): string
     {
@@ -18,10 +29,15 @@ class Grammar
 
     /**
      * Compile a CREATE TABLE IF NOT EXISTS statement.
-     * 
-     * @param string $table The name of the table to create.
-     * @param Blueprint $blueprint The table blueprint containing columns and options.
-     * @return string The compiled SQL statement.
+     *
+     * Silently skips creation when the table already exists rather than
+     * raising a ClickHouse exception.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/create/table
+     *
+     * @param string    $table     Table name.
+     * @param Blueprint $blueprint Blueprint describing columns and table options.
+     * @return string
      */
     public function compileCreateIfNotExists(string $table, Blueprint $blueprint): string
     {
@@ -30,9 +46,11 @@ class Grammar
 
     /**
      * Compile a DROP TABLE statement.
-     * 
-     * @param string $table The name of the table to drop.
-     * @return string The compiled SQL statement.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/drop#drop-table
+     *
+     * @param string $table Table name.
+     * @return string
      */
     public function compileDrop(string $table): string
     {
@@ -41,9 +59,13 @@ class Grammar
 
     /**
      * Compile a DROP TABLE IF EXISTS statement.
-     * 
-     * @param string $table The name of the table to drop.
-     * @return string The compiled SQL statement.
+     *
+     * Silently succeeds when the table does not exist.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/drop#drop-table
+     *
+     * @param string $table Table name.
+     * @return string
      */
     public function compileDropIfExists(string $table): string
     {
@@ -53,11 +75,14 @@ class Grammar
     /**
      * Compile one or more ALTER TABLE statements.
      *
-     * ClickHouse supports multiple comma-separated actions in a single ALTER TABLE,
-     * so additions, drops, and renames are all batched into one statement.
-     * 
-     * @param string $table The name of the table to alter.
-     * @param Blueprint $blueprint The table blueprint containing column modifications.
+     * ClickHouse supports multiple comma-separated actions in a single
+     * ALTER TABLE, so additions, drops, and renames are batched into one
+     * statement. Returns an empty array when the blueprint has no changes.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/alter/column
+     *
+     * @param string    $table     Table name.
+     * @param Blueprint $blueprint Blueprint containing column modifications.
      * @return string[]
      */
     public function compileAlter(string $table, Blueprint $blueprint): array
@@ -92,10 +117,12 @@ class Grammar
 
     /**
      * Compile a RENAME TABLE statement.
-     * 
-     * @param string $from The current name of the table.
-     * @param string $to The new name of the table.
-     * @return string The compiled SQL statement.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/rename#rename-table
+     *
+     * @param string $from Current table name.
+     * @param string $to   New table name.
+     * @return string
      */
     public function compileRename(string $from, string $to): string
     {
@@ -105,15 +132,19 @@ class Grammar
     /**
      * Compile a CREATE MATERIALIZED VIEW statement.
      *
-     * The view writes its results to an existing target table ($to).
-     * When $populate is true, ClickHouse back-fills from the source table.
-     * 
-     * @param string $name The name of the materialized view to create.
-     * @param string $to The name of the target table where the view writes results.
-     * @param string $selectSql The SELECT query that defines the view's contents.
-     * @param bool $ifNotExists Whether to include IF NOT EXISTS in the statement (default: false).
-     * @param bool $populate Whether to include POPULATE in the statement (default: false).
-     * @return string The compiled SQL statement.
+     * The view appends query results to an existing target table ($to) every
+     * time new data is inserted into the source. When $populate is true,
+     * ClickHouse back-fills the target from all existing source rows — note
+     * that this can be slow and blocks concurrent inserts during the process.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/create/view#materialized-view
+     *
+     * @param string $name        Name of the materialized view.
+     * @param string $to          Name of the target table the view writes into.
+     * @param string $selectSql   SELECT query defining the view transformation.
+     * @param bool   $ifNotExists Emit IF NOT EXISTS (default: false).
+     * @param bool   $populate    Emit POPULATE to back-fill from the source (default: false).
+     * @return string
      */
     public function compileMaterializedView(
         string $name,
@@ -130,9 +161,11 @@ class Grammar
 
     /**
      * Compile a DROP VIEW statement.
-     * 
-     * @param string $name The name of the view to drop.
-     * @return string The compiled SQL statement.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/drop#drop-view
+     *
+     * @param string $name View name.
+     * @return string
      */
     public function compileDropView(string $name): string
     {
@@ -141,9 +174,13 @@ class Grammar
 
     /**
      * Compile a DROP VIEW IF EXISTS statement.
-     * 
-     * @param string $name The name of the view to drop.
-     * @return string The compiled SQL statement.
+     *
+     * Silently succeeds when the view does not exist.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/drop#drop-view
+     *
+     * @param string $name View name.
+     * @return string
      */
     public function compileDropViewIfExists(string $name): string
     {
@@ -151,11 +188,15 @@ class Grammar
     }
 
     /**
-     * Build the full CREATE TABLE statement with columns and options.
-     * 
-     * @param string $header The initial part of the statement (e.g., "CREATE TABLE `name`").
-     * @param Blueprint $blueprint The table blueprint containing columns and options.
-     * @return string The complete SQL statement.
+     * Build the full CREATE TABLE SQL body from a header prefix and a Blueprint.
+     *
+     * Assembles columns, ENGINE, PARTITION BY, ORDER BY, PRIMARY KEY,
+     * SAMPLE BY, TTL, SETTINGS, and COMMENT clauses in the order required
+     * by ClickHouse.
+     *
+     * @param string    $header    Opening clause, e.g. `"CREATE TABLE \`name\`"`.
+     * @param Blueprint $blueprint Blueprint describing the table structure.
+     * @return string
      */
     private function buildCreateStatement(string $header, Blueprint $blueprint): string
     {

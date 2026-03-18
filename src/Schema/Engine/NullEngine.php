@@ -10,6 +10,9 @@ use Beeterty\ClickHouse\Schema\Contracts\Engine;
  */
 class NullEngine implements Engine
 {
+    /**
+     * @inheritDoc
+     */
     public function toSql(): string
     {
         return 'Null()';

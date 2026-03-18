@@ -7,9 +7,12 @@ use Beeterty\ClickHouse\Format\Contracts\Format;
 /**
  * ClickHouse CSVWithNames format.
  *
- * The first row is a header line with column names. Each subsequent row is a
- * comma-separated record. Values containing commas, double-quotes, or newlines
- * are RFC 4180-quoted.
+ * The first row is a header line containing column names. Each subsequent row
+ * is a comma-separated record. Values that contain commas, double-quotes, or
+ * newlines are RFC 4180-quoted (enclosed in double-quotes with internal
+ * double-quotes doubled).
+ *
+ * @see https://clickhouse.com/docs/en/interfaces/formats#csvwithnames
  */
 final class Csv implements Format
 {
