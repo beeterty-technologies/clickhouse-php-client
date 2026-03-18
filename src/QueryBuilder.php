@@ -41,6 +41,9 @@ class QueryBuilder
     private ?int $limitValue  = null;
     private ?int $offsetValue = null;
 
+    private bool $finalModifier = false;
+    private ?float $sampleRatio = null;
+
     public function __construct(
         private readonly Client $client,
     ) {}
@@ -109,6 +112,43 @@ class QueryBuilder
         }
 
         $this->selectColumns[] = $expression;
+
+        return $this;
+    }
+
+    // ─── FINAL / SAMPLE (ClickHouse-specific) ────────────────────────────────
+
+    /**
+     * Append the FINAL modifier to the FROM clause.
+     *
+     * Forces `ReplacingMergeTree` and `CollapsingMergeTree` tables to merge
+     * duplicate rows at query time, returning a fully deduplicated result set.
+     * Has a performance cost — use only when you need guaranteed consistency.
+     *
+     *   $client->table('users')->final()->where('active', 1)->get();
+     *   // → SELECT * FROM `users` FINAL WHERE `active` = 1
+     */
+    public function final(): static
+    {
+        $this->finalModifier = true;
+
+        return $this;
+    }
+
+    /**
+     * Add a SAMPLE clause for random fractional row sampling.
+     *
+     * Only available on MergeTree-family tables with a SAMPLE BY key defined.
+     * $ratio must be between 0.0 (exclusive) and 1.0 (inclusive).
+     *
+     *   ->sample(0.1)   // read ~10 % of data
+     *   ->sample(1)     // read all data (equivalent to no SAMPLE)
+     *
+     * @param float $ratio Fraction of data to sample (e.g. 0.1 for 10 %).
+     */
+    public function sample(float $ratio): static
+    {
+        $this->sampleRatio = $ratio;
 
         return $this;
     }
@@ -384,6 +424,14 @@ class QueryBuilder
     {
         $sql = 'SELECT ' . implode(', ', $this->selectColumns);
         $sql .= " FROM `{$this->fromTable}`";
+
+        if ($this->finalModifier) {
+            $sql .= ' FINAL';
+        }
+
+        if ($this->sampleRatio !== null) {
+            $sql .= ' SAMPLE ' . $this->sampleRatio;
+        }
 
         if (!empty($this->prewhereConditions)) {
             $sql .= ' PREWHERE ' . implode(' AND ', $this->prewhereConditions);
