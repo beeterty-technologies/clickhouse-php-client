@@ -8,13 +8,13 @@ use IteratorAggregate;
 use ArrayIterator;
 use Traversable;
 
-/** @implements IteratorAggregate<int, array<string, mixed>> */
+/** @implements IteratorAggregate<int, array<array-key, mixed>> */
 class Statement implements Countable, IteratorAggregate
 {
     /**
      * The decoded rows from the raw response body, lazily populated on first access.
      *
-     * @var array<int, array<string, mixed>>|null
+     * @var array<int, array<array-key, mixed>>|null
      */
     private ?array $decoded = null;
 
@@ -48,7 +48,7 @@ class Statement implements Countable, IteratorAggregate
      *       echo $row['name'];
      *   }
      *
-     * @return array<int, array<string, mixed>>
+     * @return array<int, array<array-key, mixed>>
      */
     public function rows(): array
     {
@@ -62,7 +62,7 @@ class Statement implements Countable, IteratorAggregate
      *   $user = $client->query('SELECT * FROM users WHERE id = 1')->first();
      *   // → ['id' => 1, 'name' => 'Alice']  or null
      *
-     * @return array<string, mixed>|null
+     * @return array<array-key, mixed>|null
      */
     public function first(): ?array
     {
@@ -194,7 +194,21 @@ class Statement implements Countable, IteratorAggregate
     {
         $raw = $this->headers['X-ClickHouse-Summary'] ?? '{}';
 
-        return json_decode($raw, true) ?? [];
+        $decoded = json_decode($raw, true);
+
+        if (!\is_array($decoded)) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($decoded as $key => $value) {
+            if (\is_string($key)) {
+                $result[$key] = $value;
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -242,7 +256,7 @@ class Statement implements Countable, IteratorAggregate
      *       echo $row['id'];
      *   }
      *
-     * @return Traversable<int, array<string, mixed>>
+     * @return Traversable<int, array<array-key, mixed>>
      */
     public function getIterator(): Traversable
     {

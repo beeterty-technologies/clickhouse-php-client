@@ -29,10 +29,11 @@ final class JsonEachRow implements Format
      */
     public function encode(array $rows): string
     {
-        return implode("\n", array_map(
-            fn(array $row) => json_encode($row, JSON_THROW_ON_ERROR),
-            $rows
-        ));
+        $lines = [];
+        foreach ($rows as $row) {
+            $lines[] = json_encode($row, JSON_THROW_ON_ERROR);
+        }
+        return implode("\n", $lines);
     }
 
     /**
@@ -44,9 +45,13 @@ final class JsonEachRow implements Format
             return [];
         }
 
-        return array_map(
-            fn(string $line) => json_decode($line, true, flags: JSON_THROW_ON_ERROR),
-            array_filter(explode("\n", trim($raw)))
-        );
+        $rows = [];
+
+        foreach (array_filter(explode("\n", trim($raw))) as $line) {
+            $decoded = json_decode($line, true, flags: JSON_THROW_ON_ERROR);
+            $rows[]  = \is_array($decoded) ? $decoded : [];
+        }
+
+        return $rows;
     }
 }

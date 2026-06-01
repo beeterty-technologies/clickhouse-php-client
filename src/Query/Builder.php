@@ -84,6 +84,34 @@ class Builder
     private ?float $sampleRatio = null;
 
     /**
+     * The JOIN clauses to apply, stored as pre-compiled SQL fragments.
+     *
+     * @var string[]
+     */
+    private array $joins = [];
+
+    /**
+     * The ARRAY JOIN clauses to apply, stored as pre-compiled SQL fragments.
+     *
+     * @var string[]
+     */
+    private array $arrayJoins = [];
+
+    /**
+     * Named CTEs registered via with(), keyed by alias.
+     *
+     * @var array<string, string>
+     */
+    private array $withs = [];
+
+    /**
+     * UNION clauses to append after the main query.
+     *
+     * @var array<int, array{type: string, sql: string}>
+     */
+    private array $unions = [];
+
+    /**
      * Create a new Builder instance.
      *
      * The client is used to dispatch terminal methods (get(), first(), count(), etc.)
@@ -286,6 +314,318 @@ class Builder
     }
 
     /**
+     * Add a JOIN (INNER JOIN by default) clause.
+     *
+     * Accepts either the 3-argument form (left column, right column with implied =)
+     * or a closure for multiple or non-equality ON conditions. The strictness
+     * parameter controls ClickHouse-specific join behaviour; ALL is the default
+     * and is omitted from the generated SQL.
+     *
+     * Example:
+     *   ->join('orders', 'users.id', 'orders.user_id')
+     *   // → INNER JOIN `orders` ON users.id = orders.user_id
+     *
+     *   ->join('orders', 'users.id', '=', 'orders.user_id', strictness: 'ANY')
+     *   // → ANY INNER JOIN `orders` ON users.id = orders.user_id
+     *
+     *   ->join('orders', function (JoinClause $join): void {
+     *       $join->on('users.id', '=', 'orders.user_id')
+     *            ->on('users.tenant_id', '=', 'orders.tenant_id');
+     *   })
+     *
+     * Note: ClickHouse join strictness (ANY, ALL, SEMI, ANTI, ASOF) is prepended
+     * before the join type keyword in the generated SQL.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/select/join
+     *
+     * @param string                       $table            Table to join.
+     * @param string|\Closure(JoinClause): void $first       Left column, right column (3-arg), or a closure.
+     * @param string                       $operatorOrSecond Operator (e.g. '=') or the right column in the 3-arg shorthand.
+     * @param string|null                  $second           Right column when an explicit operator is provided.
+     * @param string                       $strictness       ClickHouse join strictness: 'ALL' (default), 'ANY', 'SEMI', 'ANTI', 'ASOF'.
+     * @return static
+     */
+    public function join(
+        string $table,
+        string|\Closure $first,
+        string $operatorOrSecond = '=',
+        ?string $second = null,
+        string $strictness = 'ALL',
+    ): static {
+        return $this->addJoin('INNER', $table, $first, $operatorOrSecond, $second, $strictness);
+    }
+
+    /**
+     * Add an INNER JOIN clause. Alias for join().
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/select/join
+     *
+     * @param string                       $table            Table to join.
+     * @param string|\Closure(JoinClause): void $first       Left column, right column (3-arg), or a closure.
+     * @param string                       $operatorOrSecond Operator or right column (3-arg shorthand).
+     * @param string|null                  $second           Right column when an explicit operator is provided.
+     * @param string                       $strictness       ClickHouse join strictness: 'ALL' (default), 'ANY', 'SEMI', 'ANTI', 'ASOF'.
+     * @return static
+     */
+    public function innerJoin(
+        string $table,
+        string|\Closure $first,
+        string $operatorOrSecond = '=',
+        ?string $second = null,
+        string $strictness = 'ALL',
+    ): static {
+        return $this->addJoin('INNER', $table, $first, $operatorOrSecond, $second, $strictness);
+    }
+
+    /**
+     * Add a LEFT JOIN clause.
+     *
+     * Example:
+     *   ->leftJoin('profiles', 'users.id', 'profiles.user_id')
+     *   // → LEFT JOIN `profiles` ON users.id = profiles.user_id
+     *
+     *   ->leftJoin('orders', 'users.id', 'orders.user_id', strictness: 'ANY')
+     *   // → ANY LEFT JOIN `orders` ON users.id = orders.user_id
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/select/join
+     *
+     * @param string                       $table            Table to join.
+     * @param string|\Closure(JoinClause): void $first       Left column, right column (3-arg), or a closure.
+     * @param string                       $operatorOrSecond Operator or right column (3-arg shorthand).
+     * @param string|null                  $second           Right column when an explicit operator is provided.
+     * @param string                       $strictness       ClickHouse join strictness: 'ALL' (default), 'ANY', 'SEMI', 'ANTI', 'ASOF'.
+     * @return static
+     */
+    public function leftJoin(
+        string $table,
+        string|\Closure $first,
+        string $operatorOrSecond = '=',
+        ?string $second = null,
+        string $strictness = 'ALL',
+    ): static {
+        return $this->addJoin('LEFT', $table, $first, $operatorOrSecond, $second, $strictness);
+    }
+
+    /**
+     * Add a RIGHT JOIN clause.
+     *
+     * Example:
+     *   ->rightJoin('events', 'users.id', 'events.user_id')
+     *   // → RIGHT JOIN `events` ON users.id = events.user_id
+     *
+     * Note: RIGHT JOIN is supported but generally less efficient than LEFT JOIN
+     * in ClickHouse. Consider rewriting as a LEFT JOIN with the tables swapped.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/select/join
+     *
+     * @param string                       $table            Table to join.
+     * @param string|\Closure(JoinClause): void $first       Left column, right column (3-arg), or a closure.
+     * @param string                       $operatorOrSecond Operator or right column (3-arg shorthand).
+     * @param string|null                  $second           Right column when an explicit operator is provided.
+     * @param string                       $strictness       ClickHouse join strictness: 'ALL' (default), 'ANY', 'SEMI', 'ANTI', 'ASOF'.
+     * @return static
+     */
+    public function rightJoin(
+        string $table,
+        string|\Closure $first,
+        string $operatorOrSecond = '=',
+        ?string $second = null,
+        string $strictness = 'ALL',
+    ): static {
+        return $this->addJoin('RIGHT', $table, $first, $operatorOrSecond, $second, $strictness);
+    }
+
+    /**
+     * Add a FULL JOIN clause.
+     *
+     * Example:
+     *   ->fullJoin('b', 'a.id', 'b.id')
+     *   // → FULL JOIN `b` ON a.id = b.id
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/select/join
+     *
+     * @param string                       $table            Table to join.
+     * @param string|\Closure(JoinClause): void $first       Left column, right column (3-arg), or a closure.
+     * @param string                       $operatorOrSecond Operator or right column (3-arg shorthand).
+     * @param string|null                  $second           Right column when an explicit operator is provided.
+     * @param string                       $strictness       ClickHouse join strictness: 'ALL' (default), 'ANY', 'SEMI', 'ANTI', 'ASOF'.
+     * @return static
+     */
+    public function fullJoin(
+        string $table,
+        string|\Closure $first,
+        string $operatorOrSecond = '=',
+        ?string $second = null,
+        string $strictness = 'ALL',
+    ): static {
+        return $this->addJoin('FULL', $table, $first, $operatorOrSecond, $second, $strictness);
+    }
+
+    /**
+     * Add a CROSS JOIN clause.
+     *
+     * Produces the Cartesian product of both tables — every row in the left
+     * table is paired with every row in the right table. No ON condition is
+     * accepted. Always apply WHERE / PREWHERE to limit output size.
+     *
+     * Example:
+     *   ->crossJoin('dimensions')
+     *   // → CROSS JOIN `dimensions`
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/select/join
+     *
+     * @param string $table Table to cross-join against.
+     * @return static
+     */
+    public function crossJoin(string $table): static
+    {
+        $this->joins[] = 'CROSS JOIN ' . $this->wrapTable($table);
+
+        return $this;
+    }
+
+    /**
+     * Add an ARRAY JOIN clause to flatten an array column into rows.
+     *
+     * ARRAY JOIN is a ClickHouse-specific clause that expands one or more
+     * array-typed columns so that each element becomes a separate row. All
+     * other columns in the row are duplicated for each element. Rows with
+     * empty arrays are dropped (use leftArrayJoin() to preserve them).
+     *
+     * Example:
+     *   ->arrayJoin('tags')
+     *   // → ARRAY JOIN `tags`
+     *
+     *   ->arrayJoin('tags', 'scores')
+     *   // → ARRAY JOIN `tags`, `scores`
+     *
+     * Note: ARRAY JOIN operates on a column within the FROM table, not on a
+     * separate table. The column must have an Array(T) type.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/select/array-join
+     *
+     * @param string ...$columns One or more Array-typed column names to flatten.
+     * @return static
+     */
+    public function arrayJoin(string ...$columns): static
+    {
+        $wrapped = implode(', ', array_map($this->wrapColumn(...), $columns));
+        $this->arrayJoins[] = "ARRAY JOIN {$wrapped}";
+
+        return $this;
+    }
+
+    /**
+     * Add a LEFT ARRAY JOIN clause.
+     *
+     * Like arrayJoin() but preserves rows where the array column is empty or
+     * NULL, filling the expanded column(s) with NULL / zero-value instead of
+     * dropping the row.
+     *
+     * Example:
+     *   ->leftArrayJoin('tags')
+     *   // → LEFT ARRAY JOIN `tags`
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/select/array-join
+     *
+     * @param string ...$columns One or more Array-typed column names to flatten.
+     * @return static
+     */
+    public function leftArrayJoin(string ...$columns): static
+    {
+        $wrapped = implode(', ', array_map($this->wrapColumn(...), $columns));
+        $this->arrayJoins[] = "LEFT ARRAY JOIN {$wrapped}";
+
+        return $this;
+    }
+
+    /**
+     * Register a named CTE (Common Table Expression) in the WITH clause.
+     *
+     * CTEs are emitted before SELECT in registration order. A CTE alias can be
+     * referenced in the main query's FROM clause or in a subsequent CTE.
+     *
+     * Example:
+     *   ->with('recent', $client->table('events')->where('date', '>=', '2024-01-01'))
+     *   ->table('recent')
+     *   ->get()
+     *   // → WITH recent AS (SELECT * FROM `events` WHERE `date` >= '2024-01-01')
+     *   //   SELECT * FROM `recent`
+     *
+     *   // Raw SQL string:
+     *   ->with('summary', 'SELECT user_id, count() AS n FROM events GROUP BY user_id')
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/select/with
+     *
+     * @param string         $alias CTE name referenced elsewhere in the query.
+     * @param string|Builder $query Subquery as a Builder instance or a raw SQL string.
+     * @return static
+     */
+    public function with(string $alias, string|Builder $query): static
+    {
+        $this->withs[$alias] = $query instanceof Builder ? $query->toSql() : $query;
+
+        return $this;
+    }
+
+    /**
+     * Append a UNION ALL clause combining this query with another.
+     *
+     * All rows from both queries are included, duplicates preserved. Column
+     * counts and types must match across both sides.
+     *
+     * Example:
+     *   $a = $client->table('events_2023')->select('id', 'name');
+     *   $b = $client->table('events_2024')->select('id', 'name');
+     *   $a->unionAll($b)->get();
+     *   // → SELECT `id`, `name` FROM `events_2023`
+     *   //   UNION ALL SELECT `id`, `name` FROM `events_2024`
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/select/union
+     *
+     * @param string|Builder $query The query to union with.
+     * @return static
+     */
+    public function unionAll(string|Builder $query): static
+    {
+        $this->unions[] = [
+            'type' => 'UNION ALL',
+            'sql'  => $query instanceof Builder ? $query->toSql() : $query,
+        ];
+
+        return $this;
+    }
+
+    /**
+     * Append a UNION DISTINCT clause combining this query with another.
+     *
+     * Rows from both queries are merged with duplicates removed. Column counts
+     * and types must match across both sides.
+     *
+     * Example:
+     *   $a->unionDistinct($b)->get();
+     *   // → SELECT ... UNION DISTINCT SELECT ...
+     *
+     * Note: UNION DISTINCT requires a deduplication pass and is generally
+     * slower than UNION ALL. Prefer UNION ALL when duplicate rows are
+     * acceptable.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/select/union
+     *
+     * @param string|Builder $query The query to union with.
+     * @return static
+     */
+    public function unionDistinct(string|Builder $query): static
+    {
+        $this->unions[] = [
+            'type' => 'UNION DISTINCT',
+            'sql'  => $query instanceof Builder ? $query->toSql() : $query,
+        ];
+
+        return $this;
+    }
+
+    /**
      * Add a PREWHERE condition — ClickHouse's pre-filter applied before WHERE.
      *
      * PREWHERE is evaluated before WHERE and reads only the columns it references,
@@ -390,7 +730,10 @@ class Builder
     /**
      * Add a WHERE … IN (…) condition.
      *
-     * All values in the array are escaped using the same rules as where():
+     * Accepts either a flat array of values (escaped automatically) or a
+     * Builder instance whose compiled SQL is used as a subquery.
+     *
+     * All scalar values are escaped using the same rules as where():
      * strings are single-quoted, integers and floats are unquoted, booleans
      * become 1/0, and nulls become NULL.
      *
@@ -401,14 +744,23 @@ class Builder
      *   ->whereIn('id', [1, 2, 3])
      *   // → `id` IN (1, 2, 3)
      *
+     *   ->whereIn('user_id', $client->table('admins')->select('id'))
+     *   // → `user_id` IN (SELECT `id` FROM `admins`)
+     *
      * @see https://clickhouse.com/docs/en/sql-reference/operators/in
      *
-     * @param string $column Column name to filter on.
-     * @param array  $values List of values to match against.
+     * @param string         $column Column name to filter on.
+     * @param array<mixed>|Builder $values List of values or a subquery Builder.
      * @return static
      */
-    public function whereIn(string $column, array $values): static
+    public function whereIn(string $column, array|Builder $values): static
     {
+        if ($values instanceof Builder) {
+            $this->whereConditions[] = $this->wrapColumn($column) . ' IN (' . $values->toSql() . ')';
+
+            return $this;
+        }
+
         $escaped = implode(', ', array_map($this->escapeValue(...), $values));
         $this->whereConditions[] = $this->wrapColumn($column) . " IN ({$escaped})";
 
@@ -418,7 +770,10 @@ class Builder
     /**
      * Add a WHERE … NOT IN (…) condition.
      *
-     * All values in the array are escaped using the same rules as where():
+     * Accepts either a flat array of values (escaped automatically) or a
+     * Builder instance whose compiled SQL is used as a subquery.
+     *
+     * All scalar values are escaped using the same rules as where():
      * strings are single-quoted, integers and floats are unquoted, booleans
      * become 1/0, and nulls become NULL.
      *
@@ -426,14 +781,23 @@ class Builder
      *   ->whereNotIn('status', ['deleted', 'banned'])
      *   // → `status` NOT IN ('deleted', 'banned')
      *
+     *   ->whereNotIn('user_id', $client->table('banned_users')->select('id'))
+     *   // → `user_id` NOT IN (SELECT `id` FROM `banned_users`)
+     *
      * @see https://clickhouse.com/docs/en/sql-reference/operators/in
      *
-     * @param string $column Column name to filter on.
-     * @param array  $values List of values to exclude.
+     * @param string         $column Column name to filter on.
+     * @param array<mixed>|Builder $values List of values to exclude or a subquery Builder.
      * @return static
      */
-    public function whereNotIn(string $column, array $values): static
+    public function whereNotIn(string $column, array|Builder $values): static
     {
+        if ($values instanceof Builder) {
+            $this->whereConditions[] = $this->wrapColumn($column) . ' NOT IN (' . $values->toSql() . ')';
+
+            return $this;
+        }
+
         $escaped = implode(', ', array_map($this->escapeValue(...), $values));
         $this->whereConditions[] = $this->wrapColumn($column) . " NOT IN ({$escaped})";
 
@@ -686,7 +1050,7 @@ class Builder
      *   $user = $client->table('users')->where('email', $email)->first();
      *   // → ['id' => 1, 'email' => '...', ...]  or null
      *
-     * @return array<string, mixed>|null
+     * @return array<array-key, mixed>|null
      */
     public function first(): ?array
     {
@@ -710,7 +1074,8 @@ class Builder
         $clone->offsetValue   = null;
         $clone->orderByColumns = [];
 
-        return (int) $clone->get()->value();
+        $value = $clone->get()->value();
+        return \is_numeric($value) ? (int) $value : 0;
     }
 
     /**
@@ -795,7 +1160,8 @@ class Builder
      * Compile the current builder state into a raw SQL string.
      *
      * Clauses are emitted in ClickHouse's required order:
-     * SELECT → FROM → FINAL → SAMPLE → PREWHERE → WHERE → GROUP BY → HAVING → ORDER BY → LIMIT → OFFSET.
+     * WITH → SELECT → FROM → FINAL → SAMPLE → JOIN → ARRAY JOIN →
+     * PREWHERE → WHERE → GROUP BY → HAVING → ORDER BY → LIMIT → OFFSET → UNION.
      *
      * Example:
      *   $sql = $client->table('events')
@@ -814,7 +1180,17 @@ class Builder
      */
     public function toSql(): string
     {
-        $sql = 'SELECT ' . implode(', ', $this->selectColumns);
+        $sql = '';
+
+        if (!empty($this->withs)) {
+            $ctes = [];
+            foreach ($this->withs as $alias => $query) {
+                $ctes[] = "{$alias} AS ({$query})";
+            }
+            $sql .= 'WITH ' . implode(', ', $ctes) . ' ';
+        }
+
+        $sql .= 'SELECT ' . implode(', ', $this->selectColumns);
         $sql .= " FROM `{$this->fromTable}`";
 
         if ($this->finalModifier) {
@@ -823,6 +1199,14 @@ class Builder
 
         if ($this->sampleRatio !== null) {
             $sql .= ' SAMPLE ' . $this->sampleRatio;
+        }
+
+        foreach ($this->joins as $join) {
+            $sql .= ' ' . $join;
+        }
+
+        foreach ($this->arrayJoins as $arrayJoin) {
+            $sql .= ' ' . $arrayJoin;
         }
 
         if (!empty($this->prewhereConditions)) {
@@ -853,6 +1237,10 @@ class Builder
             $sql .= " OFFSET {$this->offsetValue}";
         }
 
+        foreach ($this->unions as $union) {
+            $sql .= ' ' . $union['type'] . ' ' . $union['sql'];
+        }
+
         return $sql;
     }
 
@@ -874,7 +1262,7 @@ class Builder
             $operator = '=';
             $value    = $operatorOrValue;
         } else {
-            $operator = (string) $operatorOrValue;
+            $operator = \is_scalar($operatorOrValue) ? (string) $operatorOrValue : '=';
         }
 
         return $this->wrapColumn($column) . " {$operator} " . $this->escapeValue($value);
@@ -906,6 +1294,66 @@ class Builder
     }
 
     /**
+     * Backtick-quote a table name.
+     *
+     * Qualified names (db.table) and already-quoted identifiers are returned
+     * as-is; everything else is wrapped in backticks.
+     *
+     * @param string $table
+     * @return string
+     */
+    private function wrapTable(string $table): string
+    {
+        if (str_contains($table, '.') || str_contains($table, '`')) {
+            return $table;
+        }
+
+        return "`{$table}`";
+    }
+
+    /**
+     * Compile and register a typed JOIN clause.
+     *
+     * Handles the 3-argument shorthand (implied = operator), the 4-argument
+     * explicit-operator form, and the closure form for multiple ON conditions.
+     * The strictness prefix (ANY, SEMI, ANTI, ASOF) is prepended before the
+     * join type keyword; ALL is omitted because it is the ClickHouse default.
+     *
+     * @param string                           $type             JOIN type keyword: 'INNER', 'LEFT', 'RIGHT', 'FULL'.
+     * @param string                           $table            Right-hand table name.
+     * @param string|\Closure(JoinClause): void $first           Left column, right column (3-arg), or closure.
+     * @param string                           $operatorOrSecond Operator or right column in the 3-arg shorthand.
+     * @param string|null                      $second           Right column when an explicit operator is supplied.
+     * @param string                           $strictness       Join strictness keyword.
+     * @return static
+     */
+    private function addJoin(
+        string $type,
+        string $table,
+        string|\Closure $first,
+        string $operatorOrSecond,
+        ?string $second,
+        string $strictness,
+    ): static {
+        $strictness = strtoupper($strictness);
+        $prefix     = ($strictness !== 'ALL') ? "{$strictness} " : '';
+
+        if ($first instanceof \Closure) {
+            $clause = new JoinClause();
+            $first($clause);
+            $condition = $clause->compile();
+        } elseif ($second === null) {
+            $condition = "{$first} = {$operatorOrSecond}";
+        } else {
+            $condition = "{$first} {$operatorOrSecond} {$second}";
+        }
+
+        $this->joins[] = "{$prefix}{$type} JOIN " . $this->wrapTable($table) . " ON {$condition}";
+
+        return $this;
+    }
+
+    /**
      * Escape a PHP value for safe inline inclusion in a SQL string.
      *
      * - null   → NULL
@@ -920,13 +1368,25 @@ class Builder
      */
     private function escapeValue(mixed $value): string
     {
-        return match (true) {
-            $value === null    => 'NULL',
-            \is_bool($value)  => $value ? '1' : '0',
-            \is_int($value)   => (string) $value,
-            \is_float($value) => (string) $value,
-            \is_array($value) => '[' . implode(', ', array_map($this->escapeValue(...), $value)) . ']',
-            default           => "'" . str_replace(["\\", "'"], ["\\\\", "\\'"], (string) $value) . "'",
-        };
+        if ($value === null) {
+            return 'NULL';
+        }
+        if (\is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+        if (\is_int($value)) {
+            return (string) $value;
+        }
+        if (\is_float($value)) {
+            return (string) $value;
+        }
+        if (\is_array($value)) {
+            return '[' . implode(', ', array_map($this->escapeValue(...), $value)) . ']';
+        }
+        if (\is_string($value)) {
+            return "'" . str_replace(["\\", "'"], ["\\\\", "\\'"], $value) . "'";
+        }
+        $str = $value instanceof \Stringable ? (string) $value : get_debug_type($value);
+        return "'" . str_replace(["\\", "'"], ["\\\\", "\\'"], $str) . "'";
     }
 }

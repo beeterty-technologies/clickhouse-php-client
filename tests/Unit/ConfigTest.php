@@ -160,4 +160,160 @@ class ConfigTest extends TestCase
     {
         $this->assertFalse(Config::fromArray([])->compression);
     }
+
+    // ─── withSettings() ───────────────────────────────────────────────────────
+
+    public function test_default_settings_is_empty_array(): void
+    {
+        $this->assertSame([], (new Config())->settings);
+    }
+
+    public function test_with_settings_replaces_settings(): void
+    {
+        $config = (new Config())->withSettings(['max_threads' => 4, 'max_execution_time' => 60]);
+
+        $this->assertSame(['max_threads' => 4, 'max_execution_time' => 60], $config->settings);
+    }
+
+    public function test_with_settings_is_immutable(): void
+    {
+        $original = new Config();
+        $new      = $original->withSettings(['max_threads' => 4]);
+
+        $this->assertSame([], $original->settings);
+        $this->assertSame(['max_threads' => 4], $new->settings);
+    }
+
+    public function test_with_settings_preserves_other_fields(): void
+    {
+        $config = (new Config(host: 'ch.example.com', database: 'mydb'))
+            ->withSettings(['max_threads' => 2]);
+
+        $this->assertSame('ch.example.com', $config->host);
+        $this->assertSame('mydb', $config->database);
+    }
+
+    public function test_from_array_maps_settings(): void
+    {
+        $config = Config::fromArray(['settings' => ['max_threads' => 4]]);
+
+        $this->assertSame(['max_threads' => 4], $config->settings);
+    }
+
+    public function test_from_array_defaults_settings_to_empty(): void
+    {
+        $this->assertSame([], Config::fromArray([])->settings);
+    }
+
+    // ─── withRole() ───────────────────────────────────────────────────────────
+
+    public function test_default_roles_is_empty_array(): void
+    {
+        $this->assertSame([], (new Config())->roles);
+    }
+
+    public function test_with_role_single(): void
+    {
+        $config = (new Config())->withRole('analyst');
+
+        $this->assertSame(['analyst'], $config->roles);
+    }
+
+    public function test_with_role_multiple(): void
+    {
+        $config = (new Config())->withRole('analyst', 'reader');
+
+        $this->assertSame(['analyst', 'reader'], $config->roles);
+    }
+
+    public function test_with_role_is_immutable(): void
+    {
+        $original = new Config();
+        $new      = $original->withRole('analyst');
+
+        $this->assertSame([], $original->roles);
+        $this->assertSame(['analyst'], $new->roles);
+    }
+
+    public function test_from_array_maps_roles(): void
+    {
+        $config = Config::fromArray(['roles' => ['analyst', 'reader']]);
+
+        $this->assertSame(['analyst', 'reader'], $config->roles);
+    }
+
+    public function test_from_array_defaults_roles_to_empty(): void
+    {
+        $this->assertSame([], Config::fromArray([])->roles);
+    }
+
+    // ─── withProfile() ────────────────────────────────────────────────────────
+
+    public function test_default_profile_is_null(): void
+    {
+        $this->assertNull((new Config())->profile);
+    }
+
+    public function test_with_profile_sets_profile(): void
+    {
+        $config = (new Config())->withProfile('readonly');
+
+        $this->assertSame('readonly', $config->profile);
+    }
+
+    public function test_with_profile_is_immutable(): void
+    {
+        $original = new Config();
+        $new      = $original->withProfile('readonly');
+
+        $this->assertNull($original->profile);
+        $this->assertSame('readonly', $new->profile);
+    }
+
+    public function test_from_array_maps_profile(): void
+    {
+        $config = Config::fromArray(['profile' => 'readonly']);
+
+        $this->assertSame('readonly', $config->profile);
+    }
+
+    public function test_from_array_defaults_profile_to_null(): void
+    {
+        $this->assertNull(Config::fromArray([])->profile);
+    }
+
+    // ─── withQuotaKey() ───────────────────────────────────────────────────────
+
+    public function test_default_quota_key_is_null(): void
+    {
+        $this->assertNull((new Config())->quotaKey);
+    }
+
+    public function test_with_quota_key_sets_quota_key(): void
+    {
+        $config = (new Config())->withQuotaKey('tenant-abc-123');
+
+        $this->assertSame('tenant-abc-123', $config->quotaKey);
+    }
+
+    public function test_with_quota_key_is_immutable(): void
+    {
+        $original = new Config();
+        $new      = $original->withQuotaKey('tenant-abc');
+
+        $this->assertNull($original->quotaKey);
+        $this->assertSame('tenant-abc', $new->quotaKey);
+    }
+
+    public function test_from_array_maps_quota_key(): void
+    {
+        $config = Config::fromArray(['quota_key' => 'tenant-xyz']);
+
+        $this->assertSame('tenant-xyz', $config->quotaKey);
+    }
+
+    public function test_from_array_defaults_quota_key_to_null(): void
+    {
+        $this->assertNull(Config::fromArray([])->quotaKey);
+    }
 }

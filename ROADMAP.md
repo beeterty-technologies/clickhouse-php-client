@@ -8,41 +8,33 @@ Want to work on something? Open an issue first so we can align on the approach b
 
 ## Query builder
 
-- [ ] `JOIN` — `join()`, `leftJoin()`, `innerJoin()`, `crossJoin()` with support for ClickHouse join strictness (`ANY`, `ALL`, `ASOF`)
+- [x] `JOIN` — `join()`, `innerJoin()`, `leftJoin()`, `rightJoin()`, `fullJoin()`, `crossJoin()` with support for ClickHouse join strictness (`ANY`, `ALL`, `SEMI`, `ANTI`, `ASOF`)
 - [x] `FINAL` modifier — `->final()` appended to the FROM clause, used with `ReplacingMergeTree` / `CollapsingMergeTree` to force deduplication at read time
 - [x] `SAMPLE` clause — `->sample(0.1)` for random fractional row sampling on MergeTree tables
-- [ ] `ARRAY JOIN` — ClickHouse-specific clause that flattens array columns into rows
-- [ ] `WITH` / CTEs — `->with('cte_name', $subquery)` for common table expressions
-- [ ] `UNION ALL` / `UNION DISTINCT` — combine two `QueryBuilder` instances
-- [ ] Subqueries — pass a `QueryBuilder` instance as the value in `whereIn()` and similar clauses
+- [x] `ARRAY JOIN` — `->arrayJoin()` / `->leftArrayJoin()` flatten array columns into rows
+- [x] `WITH` / CTEs — `->with('cte_name', $subquery)` for common table expressions
+- [x] `UNION ALL` / `UNION DISTINCT` — `->unionAll($query)` / `->unionDistinct($query)` combine two Builder instances
+- [x] Subqueries — pass a `Builder` instance as the value in `whereIn()` and `whereNotIn()`
 
 ---
 
 ## HTTP interface features
 
-- [ ] **Settings passthrough** — pass arbitrary ClickHouse query settings per-request or globally via `Config`
-    ```php
-    $client->query('SELECT ...', settings: ['max_result_rows' => 1000, 'max_threads' => 4]);
-    new Config(..., settings: ['max_threads' => 4]);
-    ```
-- [ ] **Sessions** — `session_id` / `session_timeout` support for temporary tables and stateful queries
-    ```php
-    $session = $client->session('my-session');
-    $session->execute('CREATE TEMPORARY TABLE ...');
-    ```
-- [ ] **Roles** — `->withRole('analyst')` fluent method on `Client` that sets the `role` URL parameter
-- [ ] **Profile** — `->withProfile('readonly')` sets the `profile` URL parameter
-- [ ] **Quota key** — `quota_key` URL parameter for per-tenant rate limiting
-- [ ] **Server-side parameterized queries** — native `{name:Type}` placeholder syntax, distinct from our client-side `:name` binding
-- [ ] **Progress tracking** — `send_progress_in_http_headers=1` with a callback to receive `X-ClickHouse-Progress` updates during long queries
-- [ ] **External data** — send a temporary in-memory table alongside a query as a multipart POST body
+- [x] **Settings passthrough** — `Config::withSettings([...])` for global settings; `settings: [...]` named arg on `query()`, `execute()`, `insert()`, `parallel()` for per-request overrides
+- [x] **Roles** — `Config::withRole('analyst')` sets the `role` URL parameter (ClickHouse 24.4+, multiple roles supported)
+- [x] **Profile** — `Config::withProfile('readonly')` sets the `profile` URL parameter
+- [x] **Quota key** — `Config::withQuotaKey('tenant-id')` sets the `quota_key` URL parameter
+- [x] **Sessions** — `$client->session('id', timeout: 300)` returns a `Session` instance; all requests carry `session_id` + `session_timeout` URL parameters, enabling temporary tables and stateful queries
+- [x] **Server-side parameterized queries** — `params: ['name' => $val]` named arg on `query()` / `execute()` maps to native `{name:Type}` placeholder syntax via `param_name=value` URL parameters
+- [x] **Progress tracking** — `onProgress: fn(array $p) => ...` named arg on `query()` / `execute()` / `Session`; automatically enables `send_progress_in_http_headers=1`; callback receives `read_rows`, `read_bytes`, `total_rows_to_read`, `elapsed_ns`, etc.
+- [x] **External data** — `queryWithExternalData(sql, externalTables: [...])` sends temporary in-memory tables as multipart POST; `ExternalTable::fromRows()` factory encodes row arrays with any Format
 
 ---
 
 ## Formats
 
-- [ ] **`JSONCompactEachRow`** — like `JsonEachRow` but rows are arrays instead of objects; smaller payloads, faster parsing
-- [ ] **`JSONCompactEachRowWithNamesAndTypes`** — compact rows with column names and ClickHouse types in the first two rows; useful when type metadata is needed
+- [x] **`JSONCompactEachRow`** — rows as JSON arrays; smaller payloads, faster parsing; decoded rows are integer-indexed
+- [x] **`JSONCompactEachRowWithNamesAndTypes`** — names + types header rows followed by compact array rows; decoded rows are associative (same shape as JSONEachRow)
 - [ ] **`Native`** — ClickHouse's own binary columnar format; zero parsing overhead, highest throughput; requires a binary codec (significant effort)
 - [ ] **`Parquet`** — Apache Parquet support for `insertFile()` and `query()`; requires an optional PHP Parquet library
 - [ ] **`Arrow` / `ArrowStream`** — Apache Arrow columnar format; great for analytics pipelines
@@ -51,27 +43,27 @@ Want to work on something? Open an issue first so we can align on the approach b
 
 ## Schema / DDL
 
-- [ ] `CREATE VIEW` (non-materialized) — simple `SELECT`-based views
-- [ ] `ATTACH` / `DETACH` table support
-- [ ] `FREEZE` partition support
-- [ ] `MOVE` partition support
-- [ ] Dictionary DDL — `CREATE DICTIONARY` / `DROP DICTIONARY`
+- [x] `CREATE VIEW` — `createView()` / `createViewIfNotExists()` for simple SELECT-based views
+- [x] `ATTACH` / `DETACH` — `attach()`, `attachIfNotExists()`, `detach()`, `detachIfExists()`
+- [x] `FREEZE` partition — `freeze($table, $partition, $backupName)` — freezes specific or all partitions with optional backup name
+- [x] `MOVE` partition — `movePartitionToTable()`, `movePartitionToDisk()`, `movePartitionToVolume()`
+- [x] Dictionary DDL — `dropDictionary()` / `dropDictionaryIfExists()` (CREATE DICTIONARY requires raw SQL via `execute()` due to its complex SOURCE/LAYOUT/LIFETIME syntax)
 
 ---
 
 ## Client
 
-- [ ] Connection pooling — reuse connections across requests in long-running processes (e.g. FPM workers)
-- [ ] Read-replica routing — automatically direct `SELECT` queries to a replica and writes to the primary
-- [ ] `insertStream()` — accept a PHP `resource` or `Generator` as the data source instead of a file path (generalises `insertFile`)
+- [x] Connection pooling — `new Client(config: ..., poolSize: 5)` pre-creates N reusable cURL handles; pool size defaults to 1 (backward-compatible); handles released back after each request
+- [x] Read-replica routing — `new Client(config: $primary, replicas: [$r1, $r2])` round-robins SELECT queries across replicas; writes always go to primary
+- [x] `insertStream()` — accepts a PHP `resource` (file handle) or `Generator` (yields row arrays), streamed via chunked-transfer POST
 
 ---
 
 ## Developer experience
 
-- [ ] Update README badge once Packagist listing is live: `[![Latest Version](https://img.shields.io/packagist/v/beeterty/clickhouse-php-client)](https://packagist.org/packages/beeterty/clickhouse-php-client)`
-- [ ] PHPStan upgrade to level 10 (v2.x)
-- [ ] Benchmark suite — track query throughput and memory across releases
+- [x] Update README badge — Packagist version badge added
+- [x] PHPStan upgrade to level 10 (v2.x) — upgraded to PHPStan 2.x, all 41 type errors fixed, zero errors at level 10
+- [x] Benchmark suite — `vendor/bin/phpbench run benchmarks/ --report=aggregate`; covers QueryBuilder compilation (6 shapes), all 5 Format encode/decode pairs, and Statement iteration/pluck/chunk at 100/1k/10k rows
 
 ---
 

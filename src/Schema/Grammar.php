@@ -188,6 +188,182 @@ class Grammar
     }
 
     /**
+     * Compile a CREATE VIEW statement.
+     *
+     * A regular (non-materialized) view stores only the SELECT query and
+     * evaluates it on every read. No data is stored on disk.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/create/view
+     *
+     * @param string $name      View name.
+     * @param string $selectSql The SELECT query that defines the view.
+     * @param bool   $ifNotExists Emit IF NOT EXISTS (default: false).
+     * @return string
+     */
+    public function compileCreateView(string $name, string $selectSql, bool $ifNotExists = false): string
+    {
+        $ifNotExists = $ifNotExists ? ' IF NOT EXISTS' : '';
+
+        return "CREATE VIEW{$ifNotExists} `{$name}` AS {$selectSql}";
+    }
+
+    /**
+     * Compile an ATTACH TABLE statement.
+     *
+     * Registers an existing on-disk table with the server without moving data.
+     * The data directory must already be in the correct location.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/attach
+     *
+     * @param string $table      Table name.
+     * @param bool   $ifNotExists Emit IF NOT EXISTS (default: false).
+     * @return string
+     */
+    public function compileAttach(string $table, bool $ifNotExists = false): string
+    {
+        $ifNotExists = $ifNotExists ? ' IF NOT EXISTS' : '';
+
+        return "ATTACH TABLE{$ifNotExists} `{$table}`";
+    }
+
+    /**
+     * Compile a DETACH TABLE statement.
+     *
+     * Removes the table from the server's in-memory state without deleting data
+     * from disk. The table can be re-registered later with ATTACH TABLE.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/detach
+     *
+     * @param string $table    Table name.
+     * @param bool   $ifExists Emit IF EXISTS (default: false).
+     * @return string
+     */
+    public function compileDetach(string $table, bool $ifExists = false): string
+    {
+        $ifExists = $ifExists ? ' IF EXISTS' : '';
+
+        return "DETACH TABLE{$ifExists} `{$table}`";
+    }
+
+    /**
+     * Compile an ALTER TABLE … FREEZE [PARTITION] statement.
+     *
+     * Creates a local backup snapshot of a partition (or the entire table when
+     * $partition is null). The snapshot is written to the configured backup
+     * directory on the server.
+     *
+     * The partition expression is passed as a raw string — quoting rules depend
+     * on the partition key type (e.g. integers need no quotes, strings do).
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#freeze-partition
+     *
+     * @param string      $table      Table name.
+     * @param string|null $partition  Partition expression (e.g. '201901', "'2024-01-01'"). Null freezes all partitions.
+     * @param string|null $backupName Optional backup name for the WITH NAME clause.
+     * @return string
+     */
+    public function compileFreezePartition(
+        string $table,
+        ?string $partition = null,
+        ?string $backupName = null,
+    ): string {
+        $sql = "ALTER TABLE `{$table}` FREEZE";
+
+        if ($partition !== null) {
+            $sql .= " PARTITION {$partition}";
+        }
+
+        if ($backupName !== null) {
+            $escaped = str_replace("'", "\\'", $backupName);
+            $sql .= " WITH NAME '{$escaped}'";
+        }
+
+        return $sql;
+    }
+
+    /**
+     * Compile an ALTER TABLE … MOVE PARTITION … TO TABLE statement.
+     *
+     * Moves a partition from one MergeTree table to another on the same server.
+     * Both tables must have identical structure and engine configuration.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#move-partition-to-table
+     *
+     * @param string $table       Source table name.
+     * @param string $partition   Partition expression.
+     * @param string $targetTable Destination table name.
+     * @return string
+     */
+    public function compileMovePartitionToTable(string $table, string $partition, string $targetTable): string
+    {
+        return "ALTER TABLE `{$table}` MOVE PARTITION {$partition} TO TABLE `{$targetTable}`";
+    }
+
+    /**
+     * Compile an ALTER TABLE … MOVE PARTITION … TO DISK statement.
+     *
+     * Moves a partition to a named disk defined in the ClickHouse storage configuration.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#move-partition-to-disk-volume
+     *
+     * @param string $table     Table name.
+     * @param string $partition Partition expression.
+     * @param string $disk      Target disk name as defined in the storage policy.
+     * @return string
+     */
+    public function compileMovePartitionToDisk(string $table, string $partition, string $disk): string
+    {
+        $escaped = str_replace("'", "\\'", $disk);
+
+        return "ALTER TABLE `{$table}` MOVE PARTITION {$partition} TO DISK '{$escaped}'";
+    }
+
+    /**
+     * Compile an ALTER TABLE … MOVE PARTITION … TO VOLUME statement.
+     *
+     * Moves a partition to a named volume defined in the ClickHouse storage policy.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#move-partition-to-disk-volume
+     *
+     * @param string $table     Table name.
+     * @param string $partition Partition expression.
+     * @param string $volume    Target volume name as defined in the storage policy.
+     * @return string
+     */
+    public function compileMovePartitionToVolume(string $table, string $partition, string $volume): string
+    {
+        $escaped = str_replace("'", "\\'", $volume);
+
+        return "ALTER TABLE `{$table}` MOVE PARTITION {$partition} TO VOLUME '{$escaped}'";
+    }
+
+    /**
+     * Compile a DROP DICTIONARY statement.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/drop#drop-dictionary
+     *
+     * @param string $name Dictionary name.
+     * @return string
+     */
+    public function compileDropDictionary(string $name): string
+    {
+        return "DROP DICTIONARY `{$name}`";
+    }
+
+    /**
+     * Compile a DROP DICTIONARY IF EXISTS statement.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/drop#drop-dictionary
+     *
+     * @param string $name Dictionary name.
+     * @return string
+     */
+    public function compileDropDictionaryIfExists(string $name): string
+    {
+        return "DROP DICTIONARY IF EXISTS `{$name}`";
+    }
+
+    /**
      * Build the full CREATE TABLE SQL body from a header prefix and a Blueprint.
      *
      * Assembles columns, ENGINE, PARTITION BY, ORDER BY, PRIMARY KEY,
@@ -237,7 +413,8 @@ class Grammar
             $pairs = [];
 
             foreach ($blueprint->getSettings() as $key => $value) {
-                $pairs[] = "{$key} = {$value}";
+                $valueStr = \is_scalar($value) ? (string) $value : '';
+                $pairs[] = "{$key} = {$valueStr}";
             }
 
             $sql .= "\nSETTINGS " . implode(', ', $pairs);

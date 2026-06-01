@@ -319,7 +319,7 @@ class ColumnDefinition
 
         if ($this->hasDefault) {
             $sql .= ' DEFAULT ' . ($this->defaultIsRaw
-                ? $this->defaultValue
+                ? (\is_string($this->defaultValue) ? $this->defaultValue : '')
                 : $this->formatDefault($this->defaultValue));
         }
 
@@ -346,12 +346,19 @@ class ColumnDefinition
      */
     private function formatDefault(mixed $value): string
     {
-        return match (true) {
-            $value === null   => 'NULL',
-            is_bool($value)   => $value ? '1' : '0',
-            is_int($value)    => (string) $value,
-            is_float($value)  => (string) $value,
-            default           => "'" . str_replace("'", "\\'", (string) $value) . "'",
-        };
+        if ($value === null) {
+            return 'NULL';
+        }
+        if (\is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+        if (\is_int($value)) {
+            return (string) $value;
+        }
+        if (\is_float($value)) {
+            return (string) $value;
+        }
+        $str = \is_string($value) ? $value : '';
+        return "'" . str_replace("'", "\\'", $str) . "'";
     }
 }

@@ -82,7 +82,7 @@ final class Csv implements Format
                 return '';
             }
 
-            $str = (string) $value;
+            $str = \is_scalar($value) ? (string) $value : '';
 
             if (
                 str_contains($str, ',')

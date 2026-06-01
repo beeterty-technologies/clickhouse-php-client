@@ -337,4 +337,121 @@ class GrammarTest extends TestCase
             $this->grammar->compileDropViewIfExists('mv_daily')
         );
     }
+
+    // [compileCreateView()]
+
+    public function test_compile_create_view(): void
+    {
+        $sql = $this->grammar->compileCreateView('v_active', 'SELECT * FROM users WHERE active = 1');
+        $this->assertSame("CREATE VIEW `v_active` AS SELECT * FROM users WHERE active = 1", $sql);
+    }
+
+    public function test_compile_create_view_if_not_exists(): void
+    {
+        $sql = $this->grammar->compileCreateView('v_active', 'SELECT 1', ifNotExists: true);
+        $this->assertSame('CREATE VIEW IF NOT EXISTS `v_active` AS SELECT 1', $sql);
+    }
+
+    // [compileAttach() / compileDetach()]
+
+    public function test_compile_attach(): void
+    {
+        $this->assertSame('ATTACH TABLE `events`', $this->grammar->compileAttach('events'));
+    }
+
+    public function test_compile_attach_if_not_exists(): void
+    {
+        $this->assertSame(
+            'ATTACH TABLE IF NOT EXISTS `events`',
+            $this->grammar->compileAttach('events', ifNotExists: true)
+        );
+    }
+
+    public function test_compile_detach(): void
+    {
+        $this->assertSame('DETACH TABLE `events`', $this->grammar->compileDetach('events'));
+    }
+
+    public function test_compile_detach_if_exists(): void
+    {
+        $this->assertSame(
+            'DETACH TABLE IF EXISTS `events`',
+            $this->grammar->compileDetach('events', ifExists: true)
+        );
+    }
+
+    // [compileFreezePartition()]
+
+    public function test_compile_freeze_all_partitions(): void
+    {
+        $this->assertSame('ALTER TABLE `events` FREEZE', $this->grammar->compileFreezePartition('events'));
+    }
+
+    public function test_compile_freeze_specific_partition(): void
+    {
+        $sql = $this->grammar->compileFreezePartition('events', '202401');
+        $this->assertSame('ALTER TABLE `events` FREEZE PARTITION 202401', $sql);
+    }
+
+    public function test_compile_freeze_with_backup_name(): void
+    {
+        $sql = $this->grammar->compileFreezePartition('events', '202401', 'jan_backup');
+        $this->assertSame("ALTER TABLE `events` FREEZE PARTITION 202401 WITH NAME 'jan_backup'", $sql);
+    }
+
+    public function test_compile_freeze_all_with_backup_name(): void
+    {
+        $sql = $this->grammar->compileFreezePartition('events', null, 'full_backup');
+        $this->assertSame("ALTER TABLE `events` FREEZE WITH NAME 'full_backup'", $sql);
+    }
+
+    public function test_compile_freeze_escapes_backup_name(): void
+    {
+        $sql = $this->grammar->compileFreezePartition('events', null, "it's a backup");
+        $this->assertStringContainsString("WITH NAME 'it\\'s a backup'", $sql);
+    }
+
+    // [compileMovePartition*()]
+
+    public function test_compile_move_partition_to_table(): void
+    {
+        $sql = $this->grammar->compileMovePartitionToTable('events', '202401', 'events_archive');
+        $this->assertSame(
+            'ALTER TABLE `events` MOVE PARTITION 202401 TO TABLE `events_archive`',
+            $sql
+        );
+    }
+
+    public function test_compile_move_partition_to_disk(): void
+    {
+        $sql = $this->grammar->compileMovePartitionToDisk('events', '202401', 'hot_disk');
+        $this->assertSame(
+            "ALTER TABLE `events` MOVE PARTITION 202401 TO DISK 'hot_disk'",
+            $sql
+        );
+    }
+
+    public function test_compile_move_partition_to_volume(): void
+    {
+        $sql = $this->grammar->compileMovePartitionToVolume('events', '202401', 'cold_volume');
+        $this->assertSame(
+            "ALTER TABLE `events` MOVE PARTITION 202401 TO VOLUME 'cold_volume'",
+            $sql
+        );
+    }
+
+    // [compileDropDictionary()]
+
+    public function test_compile_drop_dictionary(): void
+    {
+        $this->assertSame('DROP DICTIONARY `my_dict`', $this->grammar->compileDropDictionary('my_dict'));
+    }
+
+    public function test_compile_drop_dictionary_if_exists(): void
+    {
+        $this->assertSame(
+            'DROP DICTIONARY IF EXISTS `my_dict`',
+            $this->grammar->compileDropDictionaryIfExists('my_dict')
+        );
+    }
 }

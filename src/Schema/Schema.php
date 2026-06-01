@@ -201,7 +201,7 @@ class Schema
      * Each row contains: name, type, default_kind, default_expression, comment.
      *
      * @param string $table The name of the table to get columns for.
-     * @return array<int, array<string, mixed>>
+     * @return array<int, array<array-key, mixed>>
      */
     public function getColumns(string $table): array
     {
@@ -218,12 +218,202 @@ class Schema
      *
      * Each row contains: name, engine, total_rows, total_bytes.
      *
-     * @return array<int, array<string, mixed>>
+     * @return array<int, array<array-key, mixed>>
      */
     public function getTables(): array
     {
         return $this->client
             ->query('SELECT name, engine, total_rows, total_bytes FROM system.tables WHERE database = currentDatabase() ORDER BY name')
             ->rows();
+    }
+
+    /**
+     * Create a regular (non-materialized) view.
+     *
+     * A view stores only the SELECT query definition and evaluates it at read
+     * time. No data is stored on disk. Use createMaterializedView() when you
+     * need pre-computed, persisted results.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/create/view
+     *
+     * @param string $name      View name.
+     * @param string $selectSql The SELECT query defining the view.
+     */
+    public function createView(string $name, string $selectSql): void
+    {
+        $this->client->execute($this->grammar->compileCreateView($name, $selectSql));
+    }
+
+    /**
+     * Create a regular view only if one with the same name does not already exist.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/create/view
+     *
+     * @param string $name      View name.
+     * @param string $selectSql The SELECT query defining the view.
+     */
+    public function createViewIfNotExists(string $name, string $selectSql): void
+    {
+        $this->client->execute($this->grammar->compileCreateView($name, $selectSql, ifNotExists: true));
+    }
+
+    /**
+     * Attach an existing on-disk table to the server.
+     *
+     * ATTACH registers a table that already has data on disk without moving
+     * any files. Useful after a DETACH or when manually placing data files.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/attach
+     *
+     * @param string $table Table name.
+     */
+    public function attach(string $table): void
+    {
+        $this->client->execute($this->grammar->compileAttach($table));
+    }
+
+    /**
+     * Attach a table only if it is not already attached.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/attach
+     *
+     * @param string $table Table name.
+     */
+    public function attachIfNotExists(string $table): void
+    {
+        $this->client->execute($this->grammar->compileAttach($table, ifNotExists: true));
+    }
+
+    /**
+     * Detach a table from the server without deleting its data.
+     *
+     * The table disappears from the server's in-memory state but its data
+     * remains on disk. Re-register it later with attach().
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/detach
+     *
+     * @param string $table Table name.
+     */
+    public function detach(string $table): void
+    {
+        $this->client->execute($this->grammar->compileDetach($table));
+    }
+
+    /**
+     * Detach a table if it is currently attached, silently succeeding otherwise.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/detach
+     *
+     * @param string $table Table name.
+     */
+    public function detachIfExists(string $table): void
+    {
+        $this->client->execute($this->grammar->compileDetach($table, ifExists: true));
+    }
+
+    /**
+     * Freeze a specific partition (or all partitions) of a MergeTree table.
+     *
+     * Creates a local backup snapshot on the server's configured backup path.
+     * The partition expression is passed as a raw SQL string; quoting rules
+     * depend on the partition key type (integers need no quotes, strings do).
+     *
+     * Example:
+     *   $schema->freeze('events', '202401')            // integer partition key
+     *   $schema->freeze('events', "'2024-01-01'")      // string/Date partition key
+     *   $schema->freeze('events')                      // freeze all partitions
+     *   $schema->freeze('events', '202401', 'jan2024') // with backup name
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#freeze-partition
+     *
+     * @param string      $table      Table name.
+     * @param string|null $partition  Partition expression. Null freezes all partitions.
+     * @param string|null $backupName Optional name for the backup snapshot (WITH NAME).
+     */
+    public function freeze(string $table, ?string $partition = null, ?string $backupName = null): void
+    {
+        $this->client->execute($this->grammar->compileFreezePartition($table, $partition, $backupName));
+    }
+
+    /**
+     * Move a partition from one MergeTree table to another on the same server.
+     *
+     * Both tables must have identical structure and the same MergeTree engine
+     * family. The data is moved atomically — no copies are made.
+     *
+     * Example:
+     *   $schema->movePartitionToTable('events', '202401', 'events_archive')
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#move-partition-to-table
+     *
+     * @param string $table       Source table name.
+     * @param string $partition   Partition expression.
+     * @param string $targetTable Destination table name.
+     */
+    public function movePartitionToTable(string $table, string $partition, string $targetTable): void
+    {
+        $this->client->execute($this->grammar->compileMovePartitionToTable($table, $partition, $targetTable));
+    }
+
+    /**
+     * Move a partition to a named disk defined in the storage configuration.
+     *
+     * Example:
+     *   $schema->movePartitionToDisk('events', '202401', 'hot_disk')
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#move-partition-to-disk-volume
+     *
+     * @param string $table     Table name.
+     * @param string $partition Partition expression.
+     * @param string $disk      Target disk name as defined in the storage policy.
+     */
+    public function movePartitionToDisk(string $table, string $partition, string $disk): void
+    {
+        $this->client->execute($this->grammar->compileMovePartitionToDisk($table, $partition, $disk));
+    }
+
+    /**
+     * Move a partition to a named volume defined in the storage policy.
+     *
+     * Example:
+     *   $schema->movePartitionToVolume('events', '202401', 'cold_volume')
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#move-partition-to-disk-volume
+     *
+     * @param string $table     Table name.
+     * @param string $partition Partition expression.
+     * @param string $volume    Target volume name as defined in the storage policy.
+     */
+    public function movePartitionToVolume(string $table, string $partition, string $volume): void
+    {
+        $this->client->execute($this->grammar->compileMovePartitionToVolume($table, $partition, $volume));
+    }
+
+    /**
+     * Drop a dictionary.
+     *
+     * Note: CREATE DICTIONARY requires complex DDL (SOURCE, LAYOUT, LIFETIME
+     * clauses) best expressed as raw SQL via Client::execute(). This method
+     * covers the DROP side for symmetry.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/drop#drop-dictionary
+     *
+     * @param string $name Dictionary name.
+     */
+    public function dropDictionary(string $name): void
+    {
+        $this->client->execute($this->grammar->compileDropDictionary($name));
+    }
+
+    /**
+     * Drop a dictionary if it exists, silently succeeding otherwise.
+     *
+     * @see https://clickhouse.com/docs/en/sql-reference/statements/drop#drop-dictionary
+     *
+     * @param string $name Dictionary name.
+     */
+    public function dropDictionaryIfExists(string $name): void
+    {
+        $this->client->execute($this->grammar->compileDropDictionaryIfExists($name));
     }
 }

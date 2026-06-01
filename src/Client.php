@@ -3,30 +3,134 @@
 namespace Beeterty\ClickHouse;
 
 use Beeterty\ClickHouse\Exception\{ConnectionException, QueryException};
+use Beeterty\ClickHouse\ExternalTable;
 use Beeterty\ClickHouse\Format\Contracts\Format;
 use Beeterty\ClickHouse\Format\{Csv, JsonEachRow};
 use Beeterty\ClickHouse\Query\{Builder, Statement};
 use Beeterty\ClickHouse\Schema\Schema;
+use Beeterty\ClickHouse\Session;
 use CurlHandle;
 
 class Client
 {
     /**
-     * The cURL handle for the ClickHouse client.
+     * Pool of reusable cURL handles.
      *
-     * @var CurlHandle
+     * @var list<CurlHandle>
      */
-    private CurlHandle $curl;
+    private array $curlPool = [];
+
+    /**
+     * Maximum number of handles to keep in the pool.
+     *
+     * @var int
+     */
+    private int $poolSize;
+
+    /**
+     * Read-replica Config instances for SELECT routing.
+     *
+     * @var list<Config>
+     */
+    private readonly array $replicas;
+
+    /**
+     * Round-robin cursor for replica selection.
+     *
+     * @var int
+     */
+    private int $replicaIndex = 0;
 
     /**
      * Create a new ClickHouse client instance.
      *
-     * @param Config $config
+     * @param Config       $config   Primary connection configuration.
+     * @param int          $poolSize Number of cURL handles to keep in the pool (default: 1).
+     * @param list<Config> $replicas Optional read-replica configs for SELECT routing (round-robin).
      */
     public function __construct(
-        private readonly Config $config
+        private readonly Config $config,
+        int $poolSize = 1,
+        array $replicas = [],
     ) {
-        $this->curl = curl_init();
+        $this->poolSize = max(1, $poolSize);
+        $this->replicas = $replicas;
+
+        // Pre-fill the pool.
+        for ($i = 0; $i < $this->poolSize; $i++) {
+            $this->curlPool[] = curl_init();
+        }
+    }
+
+    /**
+     * Acquire a cURL handle from the pool (or create a fresh one if the pool is empty).
+     *
+     * @return CurlHandle
+     */
+    private function acquireHandle(): CurlHandle
+    {
+        if (!empty($this->curlPool)) {
+            /** @var CurlHandle */
+            return array_pop($this->curlPool);
+        }
+
+        return curl_init();
+    }
+
+    /**
+     * Return a cURL handle to the pool. If the pool is already at capacity, the handle is closed.
+     *
+     * @param CurlHandle $handle
+     * @return void
+     */
+    private function releaseHandle(CurlHandle $handle): void
+    {
+        if (\count($this->curlPool) < $this->poolSize) {
+            $this->curlPool[] = $handle;
+        } else {
+            curl_close($handle);
+        }
+    }
+
+    /**
+     * Select the next replica config for read routing (round-robin).
+     * Falls back to the primary config when no replicas are configured.
+     *
+     * @return Config
+     */
+    private function selectReplica(): Config
+    {
+        if (empty($this->replicas)) {
+            return $this->config;
+        }
+
+        $config = $this->replicas[$this->replicaIndex % \count($this->replicas)];
+        $this->replicaIndex++;
+
+        return $config;
+    }
+
+    /**
+     * Return a Session bound to the given session ID.
+     *
+     * All requests made through the session carry the session_id and
+     * session_timeout URL parameters, allowing temporary tables and other
+     * session-scoped state to persist across calls.
+     *
+     * Example:
+     *   $session = $client->session('my-session', timeout: 300);
+     *   $session->execute('CREATE TEMPORARY TABLE tmp (id UInt64) ENGINE = Memory');
+     *   $session->query('SELECT * FROM tmp')->rows();
+     *
+     * @see https://clickhouse.com/docs/en/interfaces/http#http-sessions
+     *
+     * @param string $id      Session identifier — any non-empty string.
+     * @param int    $timeout Inactivity timeout in seconds (default: 60).
+     * @return Session
+     */
+    public function session(string $id, int $timeout = 60): Session
+    {
+        return new Session($this, $id, $timeout);
     }
 
     /**
@@ -58,7 +162,7 @@ class Client
     public function ping(): bool
     {
         try {
-            $result = $this->send('SELECT 1');
+            $result = $this->send($this->config, 'SELECT 1');
 
             return trim($result['body']) === '1';
         } catch (\Throwable) {
@@ -73,25 +177,36 @@ class Client
      * means success. Named placeholders in the form :name are substituted client-side
      * before the query is dispatched.
      *
+     * Per-request settings are merged on top of any global settings defined in Config,
+     * with per-request values taking precedence on conflict.
+     *
      * Example:
      *   $stmt = $client->query('SELECT * FROM events WHERE status = :status', ['status' => 'active']);
-     *   foreach ($stmt as $row) { ... }
+     *   $stmt = $client->query('SELECT 1', settings: ['max_threads' => 4]);
      *
      * @see https://clickhouse.com/docs/en/interfaces/http
+     * @see https://clickhouse.com/docs/en/operations/settings/settings
      *
-     * @param string      $sql      SQL query string, optionally with :name placeholders.
-     * @param array       $bindings Named placeholder values keyed by placeholder name.
+     * @param string      $sql      SQL query string, optionally with :name client-side or {name:Type} server-side placeholders.
+     * @param array<string, mixed> $bindings Client-side named placeholder values keyed by placeholder name.
      * @param Format|null $format   Response format — defaults to JsonEachRow.
+     * @param array<string, int|float|string|bool> $settings Per-request ClickHouse settings, merged with global Config settings.
+     * @param array<string, int|float|string|bool> $params   Server-side query parameters for {name:Type} placeholders — passed as param_name=value URL parameters.
+     * @param (callable(array<string, string>): void)|null $onProgress Optional callback invoked for each X-ClickHouse-Progress header received during execution. Automatically enables send_progress_in_http_headers=1.
      * @return Statement
      * @throws ConnectionException
      * @throws QueryException
      */
-    public function query(string $sql, array $bindings = [], ?Format $format = null): Statement
+    public function query(string $sql, array $bindings = [], ?Format $format = null, array $settings = [], array $params = [], ?callable $onProgress = null): Statement
     {
+        if ($onProgress !== null) {
+            $settings = array_merge(['send_progress_in_http_headers' => 1], $settings);
+        }
+
         $format ??= new JsonEachRow();
 
         $sql = $this->bindParams($sql, $bindings) . ' FORMAT ' . $format->name();
-        $result = $this->send($sql);
+        $result = $this->send($this->selectReplica(), $sql, '', array_merge($settings, $this->prepareServerParams($params)), $onProgress);
 
         return new Statement($result['body'], $format, $result['headers']);
     }
@@ -111,20 +226,21 @@ class Client
      *
      * @see https://clickhouse.com/docs/en/sql-reference/statements/insert-into
      *
-     * @param string      $table  Target table name.
-     * @param array       $rows   Array of associative arrays — one per row.
-     * @param Format|null $format Encoding format — defaults to JsonEachRow.
+     * @param string      $table    Target table name.
+     * @param array<int, array<string, mixed>> $rows Array of associative arrays — one per row.
+     * @param Format|null $format   Encoding format — defaults to JsonEachRow.
+     * @param array<string, int|float|string|bool> $settings Per-request ClickHouse settings.
      * @return bool
      * @throws ConnectionException
      * @throws QueryException
      */
-    public function insert(string $table, array $rows, ?Format $format = null): bool
+    public function insert(string $table, array $rows, ?Format $format = null, array $settings = []): bool
     {
         $format ??= new JsonEachRow();
 
         $sql = "INSERT INTO {$table} FORMAT " . $format->name();
 
-        $this->send($sql, $format->encode($rows));
+        $this->send($this->config, $sql, $format->encode($rows), $settings);
 
         return true;
     }
@@ -138,18 +254,26 @@ class Client
      * Example:
      *   $client->execute('OPTIMIZE TABLE events FINAL');
      *   $client->execute('ALTER TABLE events DELETE WHERE user_id = :id', ['id' => 42]);
+     *   $client->execute('INSERT INTO t SELECT * FROM s', settings: ['max_threads' => 8]);
      *
      * @see https://clickhouse.com/docs/en/interfaces/http
      *
-     * @param string $sql      DDL or DML statement, optionally with :name placeholders.
-     * @param array  $bindings Named placeholder values.
+     * @param string $sql      DDL or DML statement, optionally with :name client-side or {name:Type} server-side placeholders.
+     * @param array<string, mixed>  $bindings Client-side named placeholder values.
+     * @param array<string, int|float|string|bool> $settings Per-request ClickHouse settings.
+     * @param array<string, int|float|string|bool> $params   Server-side query parameters for {name:Type} placeholders.
+     * @param (callable(array<string, string>): void)|null $onProgress Optional callback invoked for each X-ClickHouse-Progress header. Automatically enables send_progress_in_http_headers=1.
      * @return bool
      * @throws ConnectionException
      * @throws QueryException
      */
-    public function execute(string $sql, array $bindings = []): bool
+    public function execute(string $sql, array $bindings = [], array $settings = [], array $params = [], ?callable $onProgress = null): bool
     {
-        $this->send($this->bindParams($sql, $bindings));
+        if ($onProgress !== null) {
+            $settings = array_merge(['send_progress_in_http_headers' => 1], $settings);
+        }
+
+        $this->send($this->config, $this->bindParams($sql, $bindings), '', array_merge($settings, $this->prepareServerParams($params)), $onProgress);
 
         return true;
     }
@@ -171,7 +295,7 @@ class Client
      * @see https://clickhouse.com/docs/en/interfaces/http#query_id
      *
      * @param string $sql      DDL or DML statement, optionally with :name placeholders.
-     * @param array  $bindings Named placeholder values.
+     * @param array<string, mixed> $bindings Named placeholder values.
      * @return string The generated query_id — pass to isRunning() or kill() to track the query.
      * @throws ConnectionException
      */
@@ -180,12 +304,7 @@ class Client
         $queryId = uniqid('async_', true);
         $sql = $this->bindParams($sql, $bindings);
 
-        $url = $this->config->dataSource() . '/?' . http_build_query([
-            'database' => $this->config->database,
-            'query' => $sql,
-            'query_id' => $queryId,
-            'wait_end_of_query' => 0,
-        ]);
+        $url = $this->buildUrl($this->config, $sql, ['query_id' => $queryId, 'wait_end_of_query' => 0]);
 
         $ch = curl_init();
 
@@ -196,7 +315,7 @@ class Client
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => $this->config->connectTimeout,
             CURLOPT_TIMEOUT_MS => 2000,
-            CURLOPT_HTTPHEADER => $this->authHeaders(),
+            CURLOPT_HTTPHEADER => $this->authHeaders($this->config),
         ]);
 
         curl_exec($ch);
@@ -262,13 +381,16 @@ class Client
      *
      * @param array<string|int, string|Builder> $queries Keyed map of SQL strings or Builder instances.
      * @param Format|null $format Response format — defaults to JsonEachRow.
+     * @param array<string, int|float|string|bool> $settings Per-request ClickHouse settings applied to all parallel queries.
      * @return array<string|int, Statement> Results keyed by the same keys as the input array.
      * @throws ConnectionException
      * @throws QueryException
      */
-    public function parallel(array $queries, ?Format $format = null): array
+    public function parallel(array $queries, ?Format $format = null, array $settings = []): array
     {
         $format ??= new JsonEachRow();
+
+        $replicaConfig = $this->selectReplica();
 
         $handles = [];
 
@@ -280,11 +402,7 @@ class Client
             $sql = $query instanceof Builder ? $query->toSql() : $query;
             $sql .= ' FORMAT ' . $format->name();
 
-            $url = $this->config->dataSource() . '/?' . http_build_query([
-                'database'          => $this->config->database,
-                'query'             => $sql,
-                'wait_end_of_query' => 1,
-            ]);
+            $url = $this->buildUrl($replicaConfig, $sql, ['wait_end_of_query' => 1], $settings);
 
             $responseHeaders[$key] = [];
 
@@ -295,11 +413,11 @@ class Client
                 CURLOPT_POST => true,
                 CURLOPT_POSTFIELDS => '',
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => $this->config->timeout,
-                CURLOPT_CONNECTTIMEOUT => $this->config->connectTimeout,
-                CURLOPT_HTTPHEADER => $this->authHeaders(),
+                CURLOPT_TIMEOUT => $replicaConfig->timeout,
+                CURLOPT_CONNECTTIMEOUT => $replicaConfig->connectTimeout,
+                CURLOPT_HTTPHEADER => $this->authHeaders($replicaConfig),
                 CURLOPT_ENCODING => '',
-                CURLOPT_HEADERFUNCTION => function ($ch, $header) use ($key, &$responseHeaders): int {
+                CURLOPT_HEADERFUNCTION => function ($ch, string $header) use ($key, &$responseHeaders): int {
                     $parts = explode(':', $header, 2);
 
                     if (\count($parts) === 2) {
@@ -396,15 +514,11 @@ class Client
 
         $sql = "INSERT INTO `{$table}` FORMAT " . $format->name();
 
-        $url = $this->config->dataSource() . '/?' . http_build_query([
-            'database'          => $this->config->database,
-            'query'             => $sql,
-            'wait_end_of_query' => 1,
-        ]);
+        $url = $this->buildUrl($this->config, $sql, ['wait_end_of_query' => 1]);
 
         $responseHeaders = [];
 
-        $headers   = $this->authHeaders();
+        $headers   = $this->authHeaders($this->config);
         $headers[] = 'Transfer-Encoding: chunked';
         $headers[] = 'Expect:';
 
@@ -427,7 +541,7 @@ class Client
 
                 return $chunk === false ? '' : $chunk;
             },
-            CURLOPT_HEADERFUNCTION => function ($ch, $header) use (&$responseHeaders): int {
+            CURLOPT_HEADERFUNCTION => function ($ch, string $header) use (&$responseHeaders): int {
                 $parts = explode(':', $header, 2);
 
                 if (\count($parts) === 2) {
@@ -447,7 +561,9 @@ class Client
             throw new ConnectionException("ClickHouse file insert failed: {$error}");
         }
 
-        \assert(\is_string($response));
+        if (!\is_string($response)) {
+            throw new ConnectionException('ClickHouse file insert failed: unexpected response type');
+        }
 
         if ($httpCode !== 200) {
             throw new QueryException(
@@ -460,10 +576,219 @@ class Client
     }
 
     /**
+     * Convert server-side query parameters to their param_name URL parameter form.
+     *
+     * ClickHouse server-side parameterized queries use {name:Type} placeholders
+     * in SQL and expect corresponding param_name=value URL parameters. This
+     * method prepends "param_" to each key so they are appended to the URL
+     * correctly by buildUrl().
+     *
+     * @param array<string, int|float|string|bool> $params
+     * @return array<string, int|float|string|bool>
+     */
+    private function prepareServerParams(array $params): array
+    {
+        $result = [];
+
+        foreach ($params as $key => $value) {
+            $result['param_' . $key] = $value;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Execute a SELECT query with one or more temporary in-memory tables sent as external data.
+     *
+     * External tables are transmitted as a multipart POST body alongside the query. Each
+     * table is available by name within the SQL for the duration of the request — useful
+     * for JOINs against a small in-memory lookup set without creating a permanent table.
+     *
+     * Example — filter by a dynamic list of IDs:
+     *   $result = $client->queryWithExternalData(
+     *       'SELECT * FROM events WHERE user_id IN (SELECT id FROM allowed_users)',
+     *       externalTables: [
+     *           ExternalTable::fromRows('allowed_users', 'id UInt64', [
+     *               ['id' => 1],
+     *               ['id' => 2],
+     *           ]),
+     *       ],
+     *   );
+     *
+     * Example — JOIN against an in-memory lookup:
+     *   $client->queryWithExternalData(
+     *       'SELECT e.ts, l.label FROM events e JOIN labels l ON e.type = l.id',
+     *       externalTables: [
+     *           new ExternalTable('labels', 'id UInt8, label String', "1\tclick\n2\tview"),
+     *       ],
+     *   );
+     *
+     * @see https://clickhouse.com/docs/en/engines/table-engines/special/external-data
+     *
+     * @param string $sql           SQL query referencing one or more external table names.
+     * @param array<int, ExternalTable> $externalTables External table definitions and data.
+     * @param array<string, mixed>  $bindings Client-side :name placeholder values.
+     * @param Format|null           $format   Response format — defaults to JsonEachRow.
+     * @param array<string, int|float|string|bool> $settings Per-request ClickHouse settings.
+     * @return Statement
+     * @throws ConnectionException
+     * @throws QueryException
+     */
+    public function queryWithExternalData(
+        string $sql,
+        array $externalTables,
+        array $bindings = [],
+        ?Format $format = null,
+        array $settings = [],
+    ): Statement {
+        $format ??= new JsonEachRow();
+
+        $sql = $this->bindParams($sql, $bindings) . ' FORMAT ' . $format->name();
+
+        $result = $this->sendExternalData($this->selectReplica(), $sql, $externalTables, $settings);
+
+        return new Statement($result['body'], $format, $result['headers']);
+    }
+
+    /**
+     * Stream rows from a resource or Generator into a ClickHouse table.
+     *
+     * Generalises insertFile() by accepting any PHP resource (open file handle)
+     * or a Generator that yields associative row arrays. Data is streamed via
+     * chunked-transfer POST so even large sources stay memory-efficient.
+     *
+     * Resource form — stream a pre-formatted file handle directly:
+     *   $fh = fopen('/data/events.ndjson', 'rb');
+     *   $client->insertStream('events', $fh, new JsonEachRow());
+     *
+     * Generator form — encode rows lazily as the generator yields them:
+     *   $client->insertStream('events', (function () {
+     *       foreach ($rows as $row) { yield $row; }
+     *   })(), new JsonEachRow());
+     *
+     * Note: the Generator form encodes one row at a time using
+     * Format::encode([$row]). Formats that emit header rows on every
+     * encode() call (e.g. CSVWithNames) are not suitable for the Generator
+     * form — use the resource form with a pre-formatted file instead.
+     *
+     * @see https://clickhouse.com/docs/en/interfaces/http#inserting-data
+     *
+     * @param string        $table    Target table name.
+     * @param resource|\Generator $source A readable resource or a Generator yielding associative row arrays.
+     * @param Format|null   $format   Format for encoding (Generator form) or describing the resource data. Defaults to JsonEachRow.
+     * @param array<string, int|float|string|bool> $settings Per-request ClickHouse settings.
+     * @return bool
+     * @throws \InvalidArgumentException If $source is neither a resource nor a Generator.
+     * @throws ConnectionException
+     * @throws QueryException
+     */
+    public function insertStream(string $table, mixed $source, ?Format $format = null, array $settings = []): bool
+    {
+        $format ??= new JsonEachRow();
+
+        $sql = "INSERT INTO `{$table}` FORMAT " . $format->name();
+        $url = $this->buildUrl($this->config, $sql, ['wait_end_of_query' => 1], $settings);
+
+        $headers   = $this->authHeaders($this->config);
+        $headers[] = 'Transfer-Encoding: chunked';
+        $headers[] = 'Expect:';
+
+        if (\is_resource($source)) {
+            $readFunction = function ($ch, $fd, int $length) use ($source): string {
+                if ($length < 1) {
+                    return '';
+                }
+
+                $chunk = fread($source, $length);
+
+                return $chunk === false ? '' : $chunk;
+            };
+        } elseif ($source instanceof \Generator) {
+            $buffer = '';
+
+            $readFunction = function ($ch, $fd, int $length) use ($format, $source, &$buffer): string {
+                while (\strlen($buffer) < $length && $source->valid()) {
+                    $yielded = $source->current();
+                    $source->next();
+                    if (\is_array($yielded)) {
+                        $row = [];
+                        foreach ($yielded as $k => $v) {
+                            if (\is_string($k)) {
+                                $row[$k] = $v;
+                            }
+                        }
+                        $buffer .= $format->encode([$row]) . "\n";
+                    }
+                }
+
+                if ($buffer === '') {
+                    return '';
+                }
+
+                $chunk  = substr($buffer, 0, $length);
+                $buffer = substr($buffer, $length);
+
+                return $chunk;
+            };
+        } else {
+            throw new \InvalidArgumentException(
+                'insertStream() expects a resource or \\Generator, got ' . \get_debug_type($source)
+            );
+        }
+
+        $responseHeaders = [];
+
+        $ch = curl_init();
+
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => $this->config->timeout,
+            CURLOPT_CONNECTTIMEOUT => $this->config->connectTimeout,
+            CURLOPT_HTTPHEADER     => $headers,
+            CURLOPT_ENCODING       => '',
+            CURLOPT_READFUNCTION   => $readFunction,
+            CURLOPT_HEADERFUNCTION => function ($ch, string $header) use (&$responseHeaders): int {
+                $parts = explode(':', $header, 2);
+
+                if (\count($parts) === 2) {
+                    $responseHeaders[trim($parts[0])] = trim($parts[1]);
+                }
+
+                return \strlen($header);
+            },
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error    = curl_error($ch);
+
+        curl_close($ch);
+
+        if ($response === false || !empty($error)) {
+            throw new ConnectionException("ClickHouse stream insert failed: {$error}");
+        }
+
+        if (!\is_string($response)) {
+            throw new ConnectionException('ClickHouse stream insert failed: unexpected response type');
+        }
+
+        if ($httpCode !== 200) {
+            throw new QueryException(
+                "ClickHouse stream insert failed [{$httpCode}]: {$response}",
+                $sql
+            );
+        }
+
+        return true;
+    }
+
+    /**
      * Substitute named placeholders (:name) in a SQL string.
      *
      * @param string $sql
-     * @param array  $bindings
+     * @param array<string, mixed>  $bindings
      * @return string
      */
     private function bindParams(string $sql, array $bindings): string
@@ -481,15 +806,138 @@ class Client
     }
 
     /**
+     * Execute a query with external data tables sent as a multipart POST.
+     *
+     * Each ExternalTable is attached as a named multipart part (the part name
+     * becomes the ClickHouse temporary table name). Structure and format are
+     * passed as URL parameters following the <name>_structure / <name>_format
+     * convention. A fresh curl handle is used because multipart requires
+     * CURLOPT_POSTFIELDS to be an array, not a string.
+     *
+     * @param Config $config
+     * @param string $sql
+     * @param array<int, ExternalTable> $externalTables
+     * @param array<string, int|float|string|bool> $settings
+     * @return array{body: string, headers: array<string, string>}
+     * @throws ConnectionException
+     * @throws QueryException
+     */
+    private function sendExternalData(Config $config, string $sql, array $externalTables, array $settings = []): array
+    {
+        $extraParams = ['wait_end_of_query' => 1];
+
+        foreach ($externalTables as $table) {
+            $extraParams[$table->name . '_structure'] = $table->structure;
+            $extraParams[$table->name . '_format']    = $table->format;
+        }
+
+        $url = $this->buildUrl($config, $sql, $extraParams, $settings);
+
+        $postFields = [];
+
+        foreach ($externalTables as $table) {
+            $postFields[$table->name] = new \CURLStringFile($table->data, $table->name, 'text/plain');
+        }
+
+        $responseHeaders = [];
+
+        $ch = curl_init();
+
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $postFields,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => $config->timeout,
+            CURLOPT_CONNECTTIMEOUT => $config->connectTimeout,
+            CURLOPT_HTTPHEADER     => $this->authHeaders($config),
+            CURLOPT_ENCODING       => '',
+            CURLOPT_HEADERFUNCTION => function ($ch, string $header) use (&$responseHeaders): int {
+                $parts = explode(':', $header, 2);
+
+                if (\count($parts) === 2) {
+                    $responseHeaders[trim($parts[0])] = trim($parts[1]);
+                }
+
+                return \strlen($header);
+            },
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error    = curl_error($ch);
+
+        curl_close($ch);
+
+        if ($response === false || !empty($error)) {
+            throw new ConnectionException("ClickHouse external data query failed: {$error}");
+        }
+
+        if (!\is_string($response)) {
+            throw new ConnectionException('ClickHouse external data query failed: unexpected response type');
+        }
+
+        if ($httpCode !== 200) {
+            throw new QueryException(
+                "ClickHouse external data query failed [{$httpCode}]: {$response}",
+                $sql
+            );
+        }
+
+        return ['body' => $response, 'headers' => $responseHeaders];
+    }
+
+    /**
+     * Build the full request URL with all query parameters.
+     *
+     * Merges base params (database, query, any extras like wait_end_of_query)
+     * with global Config settings and per-request settings. Roles are appended
+     * individually as separate `role` parameters since http_build_query does
+     * not produce the bare `role=x&role=y` form that ClickHouse expects.
+     *
+     * @param Config $config
+     * @param string $sql
+     * @param array<string, mixed> $extraParams Additional fixed URL params (e.g. wait_end_of_query, query_id).
+     * @param array<string, int|float|string|bool> $settings Per-request settings merged on top of Config::$settings.
+     * @return non-empty-string
+     */
+    private function buildUrl(Config $config, string $sql, array $extraParams = [], array $settings = []): string
+    {
+        $params = array_merge(
+            ['database' => $config->database, 'query' => $sql],
+            $extraParams,
+            $config->settings,
+            $settings,
+        );
+
+        if ($config->profile !== null) {
+            $params['profile'] = $config->profile;
+        }
+
+        if ($config->quotaKey !== null) {
+            $params['quota_key'] = $config->quotaKey;
+        }
+
+        $url = $config->dataSource() . '/?' . http_build_query($params);
+
+        foreach ($config->roles as $role) {
+            $url .= '&role=' . urlencode($role);
+        }
+
+        return $url;
+    }
+
+    /**
      * Return the standard ClickHouse authentication headers used by every request.
      *
-     * @return string[]
+     * @param Config $config
+     * @return list<string>
      */
-    private function authHeaders(): array
+    private function authHeaders(Config $config): array
     {
         return [
-            'X-ClickHouse-User: ' . $this->config->username,
-            'X-ClickHouse-Key: '  . $this->config->password,
+            'X-ClickHouse-User: ' . $config->username,
+            'X-ClickHouse-Key: '  . $config->password,
             'Content-Type: text/plain',
         ];
     }
@@ -502,14 +950,27 @@ class Client
      */
     private function escape(mixed $value): string
     {
-        return match (true) {
-            $value === null  => 'NULL',
-            \is_bool($value) => $value ? '1' : '0',
-            \is_int($value)  => (string) $value,
-            \is_float($value) => (string) $value,
-            \is_array($value) => '[' . implode(', ', array_map($this->escape(...), $value)) . ']',
-            default => "'" . str_replace(["\\", "'"], ["\\\\", "\\'"], (string) $value) . "'",
-        };
+        if ($value === null) {
+            return 'NULL';
+        }
+        if (\is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+        if (\is_int($value)) {
+            return (string) $value;
+        }
+        if (\is_float($value)) {
+            return (string) $value;
+        }
+        if (\is_array($value)) {
+            return '[' . implode(', ', array_map($this->escape(...), $value)) . ']';
+        }
+        if (\is_string($value)) {
+            return "'" . str_replace(["\\", "'"], ["\\\\", "\\'"], $value) . "'";
+        }
+        // Object or resource: delegate to string representation via Stringable or fallback.
+        $str = $value instanceof \Stringable ? (string) $value : get_debug_type($value);
+        return "'" . str_replace(["\\", "'"], ["\\\\", "\\'"], $str) . "'";
     }
 
     /**
@@ -527,23 +988,26 @@ class Client
      * When $config->compression is true, non-empty bodies are gzip-compressed
      * before sending. Responses are always decompressed by cURL automatically.
      *
+     * @param Config $config
      * @param string $sql
      * @param string $body
+     * @param array<string, int|float|string|bool> $settings Per-request settings merged with global Config settings.
+     * @param (callable(array<string, string>): void)|null $onProgress Optional progress callback.
      * @return array{body: string, headers: array<string, string>}
      * @throws ConnectionException
      * @throws QueryException
      */
-    private function send(string $sql, string $body = ''): array
+    private function send(Config $config, string $sql, string $body = '', array $settings = [], ?callable $onProgress = null): array
     {
         $lastException = new ConnectionException('ClickHouse connection failed');
 
-        for ($attempt = 0; $attempt <= $this->config->retries; $attempt++) {
+        for ($attempt = 0; $attempt <= $config->retries; $attempt++) {
             if ($attempt > 0) {
-                usleep($this->config->retryDelay * 1000);
+                usleep($config->retryDelay * 1000);
             }
 
             try {
-                return $this->attempt($sql, $body);
+                return $this->attempt($config, $sql, $body, $settings, $onProgress);
             } catch (ConnectionException $e) {
                 $lastException = $e;
             }
@@ -555,23 +1019,22 @@ class Client
     /**
      * Perform a single HTTP attempt.
      *
+     * @param Config $config
      * @param string $sql
      * @param string $body
+     * @param array<string, int|float|string|bool> $settings Per-request settings.
+     * @param (callable(array<string, string>): void)|null $onProgress Optional progress callback.
      * @return array{body: string, headers: array<string, string>}
      * @throws ConnectionException
      * @throws QueryException
      */
-    private function attempt(string $sql, string $body): array
+    private function attempt(Config $config, string $sql, string $body, array $settings = [], ?callable $onProgress = null): array
     {
-        $url = $this->config->dataSource() . '/?' . http_build_query([
-            'database' => $this->config->database,
-            'query' => $sql,
-            'wait_end_of_query' => 1,
-        ]);
+        $url = $this->buildUrl($config, $sql, ['wait_end_of_query' => 1], $settings);
 
-        $headers = $this->authHeaders();
+        $headers = $this->authHeaders($config);
 
-        if ($this->config->compression && $body !== '') {
+        if ($config->compression && $body !== '') {
             $compressed = gzencode($body, 1);
 
             if ($compressed !== false) {
@@ -582,29 +1045,45 @@ class Client
 
         $responseHeaders = [];
 
-        curl_setopt_array($this->curl, [
-            CURLOPT_URL => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => $this->config->timeout,
-            CURLOPT_CONNECTTIMEOUT => $this->config->connectTimeout,
-            CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_ENCODING => '',
-            CURLOPT_HEADERFUNCTION => function ($curl, $header) use (&$responseHeaders): int {
-                $parts = explode(':', $header, 2);
+        $curl = $this->acquireHandle();
 
-                if (\count($parts) === 2) {
-                    $responseHeaders[trim($parts[0])] = trim($parts[1]);
-                }
-                return \strlen($header);
-            },
-        ]);
+        try {
+            curl_setopt_array($curl, [
+                CURLOPT_URL => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => $config->timeout,
+                CURLOPT_CONNECTTIMEOUT => $config->connectTimeout,
+                CURLOPT_HTTPHEADER => $headers,
+                CURLOPT_ENCODING => '',
+                CURLOPT_HEADERFUNCTION => function ($curl, string $header) use (&$responseHeaders, $onProgress): int {
+                    $parts = explode(':', $header, 2);
 
-        curl_setopt($this->curl, CURLOPT_POST, true);
-        curl_setopt($this->curl, CURLOPT_POSTFIELDS, $body);
+                    if (\count($parts) === 2) {
+                        $name  = trim($parts[0]);
+                        $value = trim($parts[1]);
+                        $responseHeaders[$name] = $value;
 
-        $response = curl_exec($this->curl);
-        $httpCode = curl_getinfo($this->curl, CURLINFO_HTTP_CODE);
-        $error    = curl_error($this->curl);
+                        if ($onProgress !== null && $name === 'X-ClickHouse-Progress') {
+                            $progress = json_decode($value, true);
+                            if (\is_array($progress)) {
+                                /** @var array<string, string> $progress */
+                                $onProgress($progress);
+                            }
+                        }
+                    }
+                    return \strlen($header);
+                },
+            ]);
+
+            curl_setopt($curl, CURLOPT_POST, true);
+            curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
+
+            $response = curl_exec($curl);
+            $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+            $error    = curl_error($curl);
+        } finally {
+            $this->releaseHandle($curl);
+        }
 
         if ($response === false || !empty($error)) {
             throw new ConnectionException(
@@ -612,7 +1091,9 @@ class Client
             );
         }
 
-        \assert(\is_string($response));
+        if (!\is_string($response)) {
+            throw new ConnectionException('ClickHouse connection failed: unexpected response type');
+        }
 
         if ($httpCode !== 200) {
             throw new QueryException(

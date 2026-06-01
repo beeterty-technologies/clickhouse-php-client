@@ -31,7 +31,8 @@ final class TabSeparated implements Format
     }
 
     /**
-     * @inheritDoc
+     * @param array<int, array<string, string>> $rows
+     * @return string
      */
     public function encode(array $rows): string
     {
@@ -39,7 +40,8 @@ final class TabSeparated implements Format
             return '';
         }
 
-        $headers = array_keys($rows[0]);
+        $first = $rows[0];
+        $headers = array_keys($first);
         $lines = [implode("\t", $headers)];
 
         foreach ($rows as $row) {
